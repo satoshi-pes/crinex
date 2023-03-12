@@ -40,6 +40,24 @@ func NewReader(r io.Reader) (io.Reader, error) {
 		// update epoch record
 		epochStr = s.Text()
 		if strings.HasPrefix(epochStr, ">") {
+			// check special event
+			if (len(epochStr) >= 35) && (epochStr[31] > '1') {
+				numSkip, err := strconv.Atoi(strings.TrimSpace(string(epochStr[32:35])))
+				if err == nil {
+					// special event found, skip numSkip lines
+					buf = append(buf, epochStr...)
+					buf = append(buf, '\n')
+					for i := 0; i < numSkip; i++ {
+						s.Scan()
+						buf = append(buf, s.Text()...)
+						buf = append(buf, '\n')
+					}
+					continue
+				} else {
+					// should be recover to the next epoch record that begins with '>'.
+				}
+			}
+
 			// initialize epoch record
 			epochRec.buf = []byte(epochStr)
 			data = make(map[string]satDataRecord)
