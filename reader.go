@@ -124,26 +124,27 @@ func NewReader(r io.Reader) (io.Reader, error) {
 		// buffer data in the RINEX format
 		// epoch record
 		if clk.missing {
-			buf = append(buf, []byte(fmt.Sprintf("%-35.35s\n", epochRec.StringRINEX()))...)
+			buf = append(buf, fmt.Sprintf("%-35.35s\n", epochRec.StringRINEX())...)
 		} else {
-			buf = append(buf, []byte(fmt.Sprintf("%-35.35s      %15.12f\n", epochRec.StringRINEX(), float64(clk.refData)*0.000000000001))...)
+			buf = append(buf, fmt.Sprintf("%-35.35s      %15.12f\n", epochRec.StringRINEX(), float64(clk.refData)*0.000000000001)...)
 		}
 
 		// data block
 		for _, satId := range satList {
-			var bufs []string
-			bufs = append(bufs, fmt.Sprintf("%3.3s", satId))
+			var bufs []byte
+			bufs = append(bufs, fmt.Sprintf("%3.3s", satId)...)
 
 			d := data[satId]
 			for k, d1 := range d.data {
 				ref := d1.refData
 				if d1.missing {
-					bufs = append(bufs, fmt.Sprintf("%16s", ""))
+					bufs = append(bufs, "                "...)
 					continue
 				}
-				bufs = append(bufs, fmt.Sprintf("%14.3f%1.1s%1.1s", float64(ref)*0.001, d.lli[k].String(), d.ss[k].String()))
+				bufs = append(bufs, fmt.Sprintf("%14.3f%1c%1c", float64(ref)*0.001, d.lli[k].buf[0], d.ss[k].buf[0])...)
 			}
-			buf = append(buf, []byte(fmt.Sprintf("%s\n", strings.TrimRight(strings.Join(bufs, ""), " ")))...)
+			buf = append(buf, bytes.TrimRight(bufs, " ")...)
+			buf = append(buf, '\n')
 		}
 	}
 
