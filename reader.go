@@ -136,14 +136,12 @@ func NewReader(r io.Reader) (io.Reader, error) {
 
 			d := data[satId]
 			for k, d1 := range d.data {
-				ref := d1.refData
 				if d1.missing {
 					bufs = append(bufs, "                "...)
 					continue
 				}
 				//bufs = append(bufs, fmt.Sprintf("%14.3f%1c%1c", float64(ref)*0.001, d.lli[k].buf[0], d.ss[k].buf[0])...)
-				// following code outputs the same string above, but ~1.5x faster.
-				bufs = append(bufs, intToRinexDatabytes(ref)...)
+				bufs = append(bufs, intToRinexDataBytes(d1.refData)...)
 				bufs = append(bufs, d.lli[k].buf[0])
 				bufs = append(bufs, d.ss[k].buf[0])
 			}
@@ -166,29 +164,38 @@ func integ(d []int) []int {
 }
 
 // intToRinexDataBytes returns []byte that is equivalent to the output of
-// fmt.Sprintf("%14.3f", float64(n)*0.001)
-func intToRinexDatabytes(n int) (b []byte) {
-	var (
-		buf []byte
-		l   int
-	)
-	space := []byte{' '}
-	zero := []byte{'0'}
-	buf = []byte(strconv.Itoa(n))
-	l = len(buf)
+// fmt.Sprintf("%14.3f", float64(n)*0.001)...
+func intToRinexDataBytes(n int) []byte {
+	if n > 9999999999999 || n < -999999999999 {
+		panic("overflow")
+	}
+	buf := [14]byte{' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', '0', '.', '0', '0', '0'}
 
-	if l > 3 {
-		b = bytes.Repeat(space, 13-l)
-		b = append(b, buf[:l-3]...)
-		b = append(b, '.')
-		b = append(b, buf[l-3:]...)
-	} else {
-		b = []byte("         0.")
-		b = append(b, bytes.Repeat(zero, 3-l)...)
-		b = append(b, buf...)
+	neg := n < 0
+	if neg {
+		n = -n
 	}
 
-	return b
+	for i, pos := 0, len(buf); ; i++ {
+		pos--
+		buf[pos], n = '0'+byte(n%10), n/10
+		if i == 2 {
+			pos--
+			//buf[pos] = '.'
+		}
+		if n == 0 {
+			if neg {
+				pos--
+
+				if i < 3 {
+					buf[8] = '-'
+				} else {
+					buf[pos] = '-'
+				}
+			}
+			return buf[:14]
+		}
+	}
 }
 
 // getSatList returns a slice of satellite IDs
