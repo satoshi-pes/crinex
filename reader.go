@@ -7,13 +7,17 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 var (
 	ErrBadMagic            = errors.New("crxReader: Bad magic value ")
 	ErrNotSupportedVersion = errors.New("crxReader: Not supported version ")
+	ErrInvalidEpochStr     = errors.New("crxReader: Invalid EpochStr found ")
+	ErrRecovered           = errors.New("crxReader: Invalid record found and recovered ")
 )
 
 func NewReader(r io.Reader) (io.Reader, error) {
@@ -36,7 +40,11 @@ func NewReader(r io.Reader) (io.Reader, error) {
 	_ = ver
 
 	// parse obsTypes and get all header contents
-	obsTypes, headers := scanHeader(s)
+	obsTypes, headers, err := scanHeader(s)
+	if err != nil {
+		return bytes.NewReader(buf), err
+	}
+
 	buf = append(buf, headers...) // add header
 
 	for s.Scan() {
@@ -89,13 +97,13 @@ func NewReader(r io.Reader) (io.Reader, error) {
 			epochRec.buf = []byte(epochStr)
 			data = make(map[string]satDataRecord)
 		} else {
-			epochRec.Update(epochStr)
+			epochRec.Decode(epochStr)
 		}
 
 		// receiver clock
 		s.Scan()
 		clockStr = s.Text()
-		clk.Update([]byte(clockStr))
+		clk.Decode([]byte(clockStr))
 
 		// get list of satellites
 		var satList []string
@@ -135,7 +143,7 @@ func NewReader(r io.Reader) (io.Reader, error) {
 				}
 
 				b := []byte(vals[j])
-				dj.Update(b)
+				dj.Decode(b)
 
 				// initialize arc
 				if ver == "1.0" && len(b) > 1 && b[1] == '&' {
@@ -156,8 +164,8 @@ func NewReader(r io.Reader) (io.Reader, error) {
 
 				// update
 				for j := range obsCodes {
-					data[satId].lli[j].Update(string(b[j*2]))
-					data[satId].ss[j].Update(string(b[j*2+1]))
+					data[satId].lli[j].Decode(string(b[j*2]))
+					data[satId].ss[j].Decode(string(b[j*2+1]))
 				}
 			}
 		}
@@ -229,265 +237,9 @@ func NewReader(r io.Reader) (io.Reader, error) {
 	return bytes.NewReader(buf), nil
 }
 
-func integ(d []int) []int {
-	m := len(d)
-	a := make([]int, m-1)
-	for i := m - 1; i > 0; i-- {
-		a[i-1] = d[i] + d[i-1]
-	}
-
-	return a
-}
-
-// intToRinexDataBytes returns []byte that is equivalent to the output of
-// fmt.Sprintf("%14.3f", float64(n)*0.001)...
-func intToRinexDataBytes(n int) []byte {
-	if n > 9999999999999 || n < -999999999999 {
-		panic("overflow")
-	}
-	buf := [14]byte{' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', '0', '.', '0', '0', '0'}
-
-	neg := n < 0
-	if neg {
-		n = -n
-	}
-
-	for i, pos := 0, len(buf); ; i++ {
-		pos--
-		buf[pos], n = '0'+byte(n%10), n/10
-		if i == 2 {
-			pos--
-			//buf[pos] = '.'
-		}
-		if n == 0 {
-			if neg {
-				pos--
-
-				if i < 3 {
-					buf[8] = '-'
-				} else {
-					buf[pos] = '-'
-				}
-			}
-			return buf[:14]
-		}
-	}
-}
-
-// getSatList returns a slice of satellite IDs
-// b is a slice of byte contains epoch record (41 bytes) and satellite IDs (3bytes * n)
-func getSatList(b []byte) []string {
-	satList := []string{}
-	for i := 41; i+3 <= len(b); i += 3 {
-		satId := string(b[i : i+3])
-		if satId != "   " {
-			satList = append(satList, satId)
-		}
-	}
-	return satList
-}
-
-func getSatListV1(b []byte) []string {
-	satList := []string{}
-	for i := 32; i+3 <= len(b); i += 3 {
-		satId := string(b[i : i+3])
-		if satId != "   " {
-			satList = append(satList, satId)
-		}
-	}
-	return satList
-}
-
-// strRecord stores the previous epoch record string.
-//
-// call strRecord.Update(newString) to update to the current epoch.
-type strRecord struct {
-	buf []byte
-}
-
-func (e *strRecord) Bytes() []byte {
-	return e.buf
-}
-
-func (e *strRecord) String() string {
-	return string(e.buf[:])
-}
-
-func (e *strRecord) StringRINEX() string {
-	s := string(e.buf[:])
-	if len(s) > 41 {
-		s = s[:41]
-		s = strings.TrimRight(s, " ")
-	}
-	return s
-}
-
-func (e *strRecord) StringRINEXV2(clk float64) string {
-	var b []byte
-
-	numSat, err := strconv.Atoi(string(bytes.TrimSpace(e.buf[29:32])))
-	_ = err
-
-	// first line
-	if numSat > 12 {
-		if math.IsNaN(clk) {
-			// clock is missing
-			b = append(b, fmt.Sprintf(" %67s\n", string(e.buf[1:68]))...)
-		} else {
-			b = append(b, fmt.Sprintf(" %67s%12.9f\n", string(e.buf[1:68]), clk)...)
-		}
-	} else {
-		if math.IsNaN(clk) {
-			// clock is missing
-			b = append(b, fmt.Sprintf(" %s\n", e.buf[1:32+3*numSat])...)
-		} else {
-			b = append(b, fmt.Sprintf(" %-67s%12.9f\n", e.buf[1:32+3*numSat], clk)...)
-		}
-		return string(b)
-
-	}
-
-	// continuation lines
-	for i := 1; numSat > 12*i; i++ {
-		if numSat >= 12*(i+1) {
-			b = append(b, fmt.Sprintf("%32s%-36.36s\n", "", e.buf[32+36*i:32+36*(i+1)])...)
-		} else {
-			b = append(b, fmt.Sprintf("%32s%-s\n", "", e.buf[32+36*i:32+36*i+3*(numSat%12)])...)
-		}
-	}
-
-	return string(b)
-}
-
-func (e *strRecord) Update(s string) error {
-	if len(s) == 0 {
-		// no update
-		return nil
-	}
-	b := []byte(s)
-
-	// update epoch record with a diff string
-	if len(b) > len(e.buf) {
-		e.buf = append(e.buf, make([]byte, len(b)-len(e.buf))...)
-	}
-
-	for i, c := range b {
-		switch c {
-		case ' ':
-			continue
-		case '&':
-			e.buf[i] = ' '
-		default:
-			e.buf[i] = c
-		}
-	}
-
-	return nil
-}
-
-type satDataRecord struct {
-	obsCodes []string
-
-	// differenced data
-	data []diffRecord
-	lli  []strRecord
-	ss   []strRecord
-}
-
-// NewSatDataRecord returns a new satDataRecord initialized with obsCodes.
-func NewSatDataRecord(obsCodes []string) satDataRecord {
-	return satDataRecord{
-		obsCodes: obsCodes,
-		data:     make([]diffRecord, len(obsCodes)),
-		lli:      make([]strRecord, len(obsCodes)),
-		ss:       make([]strRecord, len(obsCodes)),
-	}
-}
-
-// NewSatDataRecord returns a new satDataRecord initialized with obsCodes.
-func NewSatDataRecordV1(obsCodes []string) satDataRecord {
-	r := satDataRecord{
-		obsCodes: obsCodes,
-		data:     make([]diffRecord, len(obsCodes)),
-		lli:      make([]strRecord, len(obsCodes)),
-		ss:       make([]strRecord, len(obsCodes)),
-	}
-
-	// for crinex version 1
-	// Initialize LLI and SS because no initialization identifier is defined
-	// in the crinex version 1.
-	for i := 0; i < len(obsCodes); i++ {
-		r.lli[i].buf = []byte{' '}
-		r.ss[i].buf = []byte{' '}
-	}
-
-	return r
-}
-
-type diffRecord struct {
-	MaxDiff  int
-	refData  int
-	diffData []int
-	missing  bool
-}
-
-func (r *diffRecord) Update(b []byte) error {
-	var v []byte
-	if len(b) > 2 && b[1] == '&' {
-		// case 1: initialize data
-		diffOrder, _ := strconv.Atoi(string(b[0]))
-		ref, _ := strconv.Atoi(string(b[2:]))
-
-		// initialize
-		r.refData = ref
-		r.MaxDiff = diffOrder
-		r.diffData = []int{}
-		r.missing = false
-	} else if len(b) > 0 {
-		// case 2: update data
-		v = b
-		intNumber, _ := strconv.Atoi(string(v))
-
-		// 0:  v1  v2   v3   v4    v5
-		// 1:      d2   d3   d4    d5
-		// 2:          dd3  dd4   dd5
-		// 3:              ddd4  ddd5
-		// 4:                   dddd5
-		r.diffData = append(r.diffData, intNumber)
-
-		// update diff data
-		m := r.MaxDiff
-		if len(r.diffData) > m {
-			for i := m; i > 1; i-- {
-				r.diffData[i-1] += r.diffData[i-2]
-			}
-			r.diffData = r.diffData[1:]
-		}
-
-		// Update refdata
-		//
-		// Firstly a single order difference is calculated from
-		// the multi-order (diffOder) differences, then
-		// new value is calculated by adding the single order
-		// difference to the previous value.
-		dv := make([]int, len(r.diffData))
-		copy(dv, r.diffData)
-
-		// Calculate a single order difference
-		for len(dv) > 1 {
-			dv = integ(dv)
-		}
-		r.refData += dv[0] // add to the previous value
-
-		r.missing = false
-	} else {
-		// case 3: no data exists
-		r.missing = true // missing data flag
-	}
-
-	return nil
-}
-
+// setup parses the first two lines of the Hatanaka RINEX and returns
+// scanner and version. The first two lines contain Hatanaka RINEX header.
+// The file position will be advanced 2 lines after the call.
 func setup(r io.Reader) (s *bufio.Scanner, ver string, err error) {
 	s = bufio.NewScanner(r)
 	if err = s.Err(); err != nil {
@@ -521,7 +273,10 @@ func setup(r io.Reader) (s *bufio.Scanner, ver string, err error) {
 	return s, ver, nil
 }
 
-func scanHeader(s *bufio.Scanner) (obsTypes map[string][]string, h []byte) {
+// scanHeader parses the header, stores header contents and obstypes to
+// s.header and s.obsTypes, and advance reader position to the head of
+// the first data block.
+func scanHeader(s *bufio.Scanner) (obsTypes map[string][]string, h []byte, err error) {
 	var obsTypesStrings []string
 	var obsTypesStringsV2 []string
 	var rinexVer byte
@@ -552,6 +307,8 @@ func scanHeader(s *bufio.Scanner) (obsTypes map[string][]string, h []byte) {
 		obsTypes, _ = parseObsTypesV2(obsTypesStringsV2)
 	} else {
 		// not supported
+		err = ErrNotSupportedVersion
+		return
 	}
 
 	return
@@ -631,15 +388,9 @@ func parseObsTypesV2(buf []string) (obsTypes map[string][]string, err error) {
 	obsCodes := make([]string, numCodes)
 
 	for k := 0; k < len(buf); k++ {
-		// s = buf[k]
-
-		// if len(s) < 6 {
-		// 	err = fmt.Errorf("too short msg, s='%s'", s)
-		// 	return
-		// }
-
 		n := 0    // number of codes in the current line
 		idx := 10 // index of the string
+
 		for i := 0; i < numCodes; i++ {
 			if len(sep[n]) >= 2 {
 				obsCodes[i] = sep[n][:2]
@@ -671,4 +422,117 @@ func parseObsTypesV2(buf []string) (obsTypes map[string][]string, err error) {
 	}
 
 	return
+}
+
+// ----------------------------------------------------------------------------
+// utility functions
+// ----------------------------------------------------------------------------
+
+// epochRecBytestoTime converts epochRec.bytes() to time.Time
+func epochRecBytestoTime(b []byte, ver string) (t time.Time, err error) {
+	if ver == "3.0" {
+		dtLayout := "2006  1  2 15  4  5" // YYYY mm dd HH MM SS
+
+		// date
+		t, err = time.Parse(dtLayout, string(b[2:29]))
+		if err != nil {
+			return t, ErrInvalidEpochStr
+		}
+		return t, nil
+	} else if ver == "1.0" {
+		var (
+			yy, mm, dd, HH, MM, ss, ns int
+			errs                       [7]error
+		)
+		yy, errs[0] = strconv.Atoi(string(bytes.TrimSpace(b[1:3])))
+		mm, errs[1] = strconv.Atoi(string(bytes.TrimSpace(b[4:6])))
+		dd, errs[2] = strconv.Atoi(string(bytes.TrimSpace(b[7:9])))
+		HH, errs[3] = strconv.Atoi(string(bytes.TrimSpace(b[10:12])))
+		MM, errs[4] = strconv.Atoi(string(bytes.TrimSpace(b[13:15])))
+		ss, errs[5] = strconv.Atoi(string(bytes.TrimSpace(b[16:18])))
+		ns_bytes := append(bytes.TrimLeft(b[19:25], "0"), b[25]) // nano seconds
+		ns, errs[6] = strconv.Atoi(string(ns_bytes))
+
+		if yy >= 80 {
+			yy += 1900
+		} else {
+			yy += 2000
+		}
+
+		for _, e := range errs {
+			if e != nil {
+				return t, ErrInvalidEpochStr
+			}
+		}
+		t = time.Date(yy, time.Month(mm), dd, HH, MM, ss, ns*100, time.UTC)
+
+		return t, nil
+	}
+
+	return t, ErrNotSupportedVersion
+}
+
+// getSatList returns a slice of satellite IDs
+// b is a slice of byte contains epoch record (41 bytes) and satellite IDs (3bytes * n)
+func getSatList(b []byte) []string {
+	satList := []string{}
+	for i := 41; i+3 <= len(b); i += 3 {
+		satId := string(b[i : i+3])
+		if satId != "   " {
+			satList = append(satList, satId)
+		}
+	}
+	return satList
+}
+
+func getSatListV1(b []byte) []string {
+	satList := []string{}
+	for i := 32; i+3 <= len(b); i += 3 {
+		satId := string(b[i : i+3])
+		if satId != "   " {
+			satList = append(satList, satId)
+		}
+	}
+	return satList
+}
+
+// intToRinexDataBytes returns []byte that is equivalent to the output of
+// fmt.Sprintf("%14.3f", float64(n)*0.001)...
+func intToRinexDataBytes(n int) []byte {
+	if n > 9999999999999 || n < -999999999999 {
+		fmt.Fprintf(os.Stderr, "intToRinexDataBytes: value overflow: v='%d'\n", n)
+
+		if n > 0 {
+			return []byte("9999999999.999")
+		} else {
+			return []byte("-999999999.999")
+		}
+	}
+	buf := [14]byte{' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', '0', '.', '0', '0', '0'}
+
+	neg := n < 0
+	if neg {
+		n = -n
+	}
+
+	for i, pos := 0, len(buf); ; i++ {
+		pos--
+		buf[pos], n = '0'+byte(n%10), n/10
+		if i == 2 {
+			pos--
+			//buf[pos] = '.'
+		}
+		if n == 0 {
+			if neg {
+				pos--
+
+				if i < 3 {
+					buf[8] = '-'
+				} else {
+					buf[pos] = '-'
+				}
+			}
+			return buf[:14]
+		}
+	}
 }
