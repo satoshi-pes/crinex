@@ -6,7 +6,7 @@ Golang package for decoding compact RINEX (Hatanaka RINEX Format)
 crinex.NewScanner returns a scanner that provides sequential data decoding epoch by epoch.
 
 Example:
-```
+```Go
 import (
     "bufio"
     "fmt"
@@ -57,7 +57,7 @@ Decoded data can be retrieved by the following functions.
 - ClockOffset() -> float64
 - Data() -> []SatObss  // stores all data for the epoch
 
-```
+```Go
 // get time tag as time.Time
 epoch := s.Epoch()
 // -> time.Date(2023, time.January, 1, 0, 0, 0, 0, time.UTC)
@@ -90,7 +90,7 @@ fmt.Printf("SS : %s\n", string(data[i].ObsData[j].SS))  // SS (as byte)
 ## Reader
 crinex.NewReader returns a reader, and you can get extracted RINEX strings line by line.  
 
-```
+```Go
 package main
 
 import (
