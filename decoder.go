@@ -70,6 +70,8 @@ func (e *strRecord) StringRINEXV2(clk float64) string {
 }
 
 func (e *strRecord) Decode(s string) error {
+	space := []byte{' '} // for initialization of new buf
+
 	if len(s) == 0 {
 		// no update
 		return nil
@@ -78,7 +80,7 @@ func (e *strRecord) Decode(s string) error {
 
 	// update epoch record with a diff string
 	if len(b) > len(e.buf) {
-		e.buf = append(e.buf, make([]byte, len(b)-len(e.buf))...)
+		e.buf = append(e.buf, bytes.Repeat(space, len(b)-len(e.buf))...)
 	}
 
 	for i, c := range b {
