@@ -498,7 +498,7 @@ func getSatListV1(b []byte) []string {
 
 // intToRinexDataBytes returns []byte that is equivalent to the output of
 // fmt.Sprintf("%14.3f", float64(n)*0.001)...
-func intToRinexDataBytes(n int) []byte {
+func intToRinexDataBytes(n int64) []byte {
 	if n > 9999999999999 || n < -999999999999 {
 		fmt.Fprintf(os.Stderr, "intToRinexDataBytes: value overflow: v='%d'\n", n)
 

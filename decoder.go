@@ -141,8 +141,8 @@ func NewSatDataRecordV1(obsCodes []string) satDataRecord {
 // differenced values for MaxDiff-orders.
 type diffRecord struct {
 	MaxDiff  int
-	refData  int
-	diffData []int
+	refData  int64
+	diffData []int64
 	missing  bool
 }
 
@@ -151,7 +151,7 @@ func (r *diffRecord) Decode(b []byte) error {
 	if len(b) > 2 && b[1] == '&' {
 		// case 1: initialize data
 		diffOrder, e1 := strconv.Atoi(string(b[0]))
-		ref, e2 := strconv.Atoi(string(b[2:]))
+		ref, e2 := strconv.ParseInt(string(b[2:]), 10, 64)
 
 		if e1 != nil {
 			return e1
@@ -163,12 +163,12 @@ func (r *diffRecord) Decode(b []byte) error {
 		// initialize
 		r.refData = ref
 		r.MaxDiff = diffOrder
-		r.diffData = []int{}
+		r.diffData = []int64{}
 		r.missing = false
 	} else if len(b) > 0 {
 		// case 2: update data
 		v = b
-		intNumber, err := strconv.Atoi(string(v))
+		intNumber, err := strconv.ParseInt(string(v), 10, 64)
 		if err != nil {
 			r.missing = true
 			return err
@@ -218,7 +218,7 @@ func (r *diffRecord) Decode(b []byte) error {
 		// the multi-order (diffOder) differences, then
 		// new value is calculated by adding the single order
 		// difference to the previous value.
-		dv := make([]int, len(r.diffData))
+		dv := make([]int64, len(r.diffData))
 		copy(dv, r.diffData)
 
 		// Calculate a single order difference
@@ -236,9 +236,9 @@ func (r *diffRecord) Decode(b []byte) error {
 	return nil
 }
 
-func integ(d []int) []int {
+func integ(d []int64) []int64 {
 	m := len(d)
-	a := make([]int, m-1)
+	a := make([]int64, m-1)
 	for i := m - 1; i > 0; i-- {
 		a[i-1] = d[i] + d[i-1]
 	}
