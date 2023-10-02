@@ -417,7 +417,9 @@ func parseObsTypesV2(buf []string) (obsTypes map[string][]string, err error) {
 		}
 	}
 
-	for _, satSys := range []string{"G", "R", "J", "E", "C", "I", "S"} {
+	// store same obsCodes for all satellite system.
+	// note that " " denotes "G".
+	for _, satSys := range []string{" ", "G", "R", "J", "E", "C", "I", "S"} {
 		obsTypes[satSys] = obsCodes
 	}
 
