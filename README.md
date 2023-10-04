@@ -7,6 +7,8 @@ crinex.NewScanner returns a scanner that provides sequential data decoding epoch
 
 Example:
 ```Go
+package main
+
 import (
     "bufio"
     "fmt"
