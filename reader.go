@@ -451,9 +451,21 @@ func epochRecBytestoTime(b []byte, ver string) (t time.Time, err error) {
 		dd, errs[2] = strconv.Atoi(string(bytes.TrimSpace(b[7:9])))
 		HH, errs[3] = strconv.Atoi(string(bytes.TrimSpace(b[10:12])))
 		MM, errs[4] = strconv.Atoi(string(bytes.TrimSpace(b[13:15])))
-		ss, errs[5] = strconv.Atoi(string(bytes.TrimSpace(b[16:18])))
+
+		// In case of blank, it is considered to be 0 seconds.
+		if strings.TrimSpace(string(b[16:18])) == "" {
+			ss = 0
+		} else {
+			ss, errs[5] = strconv.Atoi(string(bytes.TrimSpace(b[16:18])))
+		}
+
 		ns_bytes := append(bytes.TrimLeft(b[19:25], "0"), b[25]) // nano seconds
-		ns, errs[6] = strconv.Atoi(string(ns_bytes))
+		// In case of blank, it is considered to be 0 nano seconds.
+		if strings.TrimSpace(string(ns_bytes)) == "" {
+			ns = 0
+		} else {
+			ns, errs[6] = strconv.Atoi(string(ns_bytes))
+		}
 
 		if yy >= 80 {
 			yy += 1900
