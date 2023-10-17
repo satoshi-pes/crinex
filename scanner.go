@@ -125,11 +125,11 @@ RETRY_SCAN_EPOCH:
 		// Check for an initialization flag '>' exists in the middle of the line.
 		// This only supports ver 3.0 because the initialization flag '&' for ver 1.0 is
 		// indistinguishable from the the differentiation flag.
-		if i := strings.Index(s.s.Text(), ">"); i > 0 {
+		if i := strings.Index(epochStr, ">"); i > 0 {
 			// found an initialization flag
 			fmt.Fprintf(os.Stderr, "epochrec modified: '%s'\n", epochStr)
 
-			epochStr = s.s.Text()[i:]
+			epochStr = epochStr[i:]
 			goto RETRY_SCAN_EPOCH
 		}
 
