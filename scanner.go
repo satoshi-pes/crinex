@@ -439,7 +439,9 @@ func (s *Scanner) scanEpoch(epochStr string) error {
 		return io.EOF
 	}
 	clockBytes = s.s.Bytes()
-	s.clk.Decode([]byte(clockBytes))
+	if err := s.clk.Decode([]byte(clockBytes)); err != nil {
+		return err
+	}
 
 	// Update of (3) observation data
 	// Get and update the satellite list for current epoch

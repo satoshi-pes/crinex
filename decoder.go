@@ -166,6 +166,11 @@ func (r *diffRecord) Decode(b []byte) error {
 		r.diffData = []int64{}
 		r.missing = false
 	} else if len(b) > 0 {
+		// check invalid maxdiff value
+		if r.MaxDiff == 0 {
+			return ErrInvalidMaxDiff
+		}
+
 		// case 2: update data
 		v = b
 		intNumber, err := strconv.ParseInt(string(v), 10, 64)
@@ -220,6 +225,10 @@ func (r *diffRecord) Decode(b []byte) error {
 		// difference to the previous value.
 		dv := make([]int64, len(r.diffData))
 		copy(dv, r.diffData)
+
+		if len(dv) == 0 {
+			return ErrInvalidData
+		}
 
 		// Calculate a single order difference
 		for len(dv) > 1 {

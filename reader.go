@@ -17,6 +17,8 @@ var (
 	ErrBadMagic            = errors.New("crxReader: Bad magic value ")
 	ErrNotSupportedVersion = errors.New("crxReader: Not supported version ")
 	ErrInvalidEpochStr     = errors.New("crxReader: Invalid EpochStr found ")
+	ErrInvalidData         = errors.New("crxReader: Invalid record found ")
+	ErrInvalidMaxDiff      = errors.New("crxReader: Invalid maxdiff found ")
 	ErrRecovered           = errors.New("crxReader: Invalid record found and recovered ")
 )
 
