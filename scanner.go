@@ -35,6 +35,9 @@ type Scanner struct {
 	r *io.Reader
 	s *bufio.Scanner
 
+	// line number
+	lineNum int
+
 	// error
 	err error
 }
@@ -69,24 +72,40 @@ func (d *SatObsData) StringRINEX() (s string) {
 }
 
 func NewScanner(r io.Reader) (*Scanner, error) {
-	var s Scanner
-	var err error
+	var (
+		s     Scanner
+		err   error
+		lines int
+	)
 
 	// setup scanner and get the version of Hatanaka RINEX
 	// Note: RINEX header contents have not parsed at this point
 	s.r = &r
-	s.s, s.ver, err = setup(r)
+	s.s, s.ver, lines, err = setup(r)
+	s.lineNum += lines // first two lines were scanned in setup
 
 	s.obsTypes = make(map[string][]string)
 
 	return &s, err
 }
 
+func (s *Scanner) Scan() bool {
+	ok := s.s.Scan()
+	if ok {
+		s.lineNum++
+	}
+	return ok
+}
+
 // ParseHeader parses the header, stores header contents and obstypes to
 // s.header and s.obsTypes, and advance reader position to the head of
 // the first data block.
 func (s *Scanner) ParseHeader() (err error) {
-	s.obsTypes, s.header, err = scanHeader(s.s)
+	var lines int
+
+	s.obsTypes, s.header, lines, err = scanHeader(s.s)
+	s.lineNum += lines
+
 	return err
 }
 
@@ -95,9 +114,12 @@ func (s *Scanner) ParseHeader() (err error) {
 // In the case the scan failed, the error is stored in s.err.
 // Returns true for io.EOF.
 func (s *Scanner) ScanEpoch() bool {
+	var lines int
+
 	if s.header == nil {
 		var err error
-		s.obsTypes, s.header, err = scanHeader(s.s)
+		s.obsTypes, s.header, lines, err = scanHeader(s.s)
+		s.lineNum += lines
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: failed to parse header. %s\n", err.Error())
 			return false
@@ -105,7 +127,7 @@ func (s *Scanner) ScanEpoch() bool {
 	}
 
 	// scan next data block and update data
-	if ok := s.s.Scan(); !ok {
+	if ok := s.Scan(); !ok {
 		s.err = s.s.Err()
 		return false
 	}
@@ -134,7 +156,7 @@ RETRY_SCAN_EPOCH:
 		}
 
 		// Search for the next initialization flag
-		for s.s.Scan() {
+		for s.Scan() {
 			epochStr = s.s.Text()
 			if strings.HasPrefix(epochStr, ">") || strings.HasPrefix(epochStr, "&") {
 				// found initialization flag
@@ -354,7 +376,7 @@ func (s *Scanner) updateEpochRec(epochStr string) error {
 		} else if numSkip > 0 {
 			// special event found, skip numSkip lines
 			for i := 0; i < numSkip; i++ {
-				if ok := s.s.Scan(); !ok {
+				if ok := s.Scan(); !ok {
 					err = s.s.Err()
 					if err != nil {
 						return err
@@ -364,7 +386,7 @@ func (s *Scanner) updateEpochRec(epochStr string) error {
 			}
 
 			// get new epochStr, and continue to check epochStr
-			if ok := s.s.Scan(); !ok {
+			if ok := s.Scan(); !ok {
 				err = s.s.Err()
 				if err != nil {
 					return err
@@ -431,7 +453,7 @@ func (s *Scanner) scanEpoch(epochStr string) error {
 	}
 
 	// Update of (2) clock offset (reference and differenced values)
-	if scanOK = s.s.Scan(); !scanOK {
+	if scanOK = s.Scan(); !scanOK {
 		err := s.s.Err()
 		if err != nil {
 			return err
@@ -458,7 +480,7 @@ func (s *Scanner) scanEpoch(epochStr string) error {
 		obsCodes := obsTypes[satSys]
 
 		// scan one line
-		if scanOK = s.s.Scan(); !scanOK {
+		if scanOK = s.Scan(); !scanOK {
 			err := s.s.Err()
 			if err != nil {
 				return err

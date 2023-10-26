@@ -34,7 +34,7 @@ func NewReader(r io.Reader) (io.Reader, error) {
 	)
 
 	// setup new crxReader
-	s, ver, err := setup(r)
+	s, ver, _, err := setup(r)
 	if err != nil {
 		return r, err
 	}
@@ -42,7 +42,7 @@ func NewReader(r io.Reader) (io.Reader, error) {
 	_ = ver
 
 	// parse obsTypes and get all header contents
-	obsTypes, headers, err := scanHeader(s)
+	obsTypes, headers, _, err := scanHeader(s)
 	if err != nil {
 		return bytes.NewReader(buf), err
 	}
@@ -242,20 +242,21 @@ func NewReader(r io.Reader) (io.Reader, error) {
 // setup parses the first two lines of the Hatanaka RINEX and returns
 // scanner and version. The first two lines contain Hatanaka RINEX header.
 // The file position will be advanced 2 lines after the call.
-func setup(r io.Reader) (s *bufio.Scanner, ver string, err error) {
+func setup(r io.Reader) (s *bufio.Scanner, ver string, lines int, err error) {
 	s = bufio.NewScanner(r)
 	if err = s.Err(); err != nil {
-		return s, ver, err
+		return s, ver, lines, err
 	}
 
 	// check first line: "CRINEX VERS   / TYPE"
 	// "3.0                 COMPACT RINEX FORMAT"
 	s.Scan()
+	lines++
 	t := s.Text()
 
 	// check header
 	if len(t) < 40 {
-		return s, ver, ErrBadMagic
+		return s, ver, lines, ErrBadMagic
 	}
 
 	ver = strings.TrimSpace(t[:20])
@@ -263,27 +264,32 @@ func setup(r io.Reader) (s *bufio.Scanner, ver string, err error) {
 
 	//3.0                 COMPACT RINEX FORMAT                    CRINEX VERS   / TYPE
 	if magic != "COMPACT RINEX FORMAT" {
-		return s, ver, ErrBadMagic
+		return s, ver, lines, ErrBadMagic
 	}
 	if ver != "3.0" && ver != "1.0" {
-		return s, ver, ErrNotSupportedVersion
+		return s, ver, lines, ErrNotSupportedVersion
 	}
 
 	// skip second line: "CRINEX PROG / DATE"
 	s.Scan()
+	lines++
 
-	return s, ver, nil
+	return s, ver, lines, nil
 }
 
 // scanHeader parses the header, stores header contents and obstypes to
 // s.header and s.obsTypes, and advance reader position to the head of
 // the first data block.
-func scanHeader(s *bufio.Scanner) (obsTypes map[string][]string, h []byte, err error) {
-	var obsTypesStrings []string
-	var obsTypesStringsV2 []string
-	var rinexVer byte
+func scanHeader(s *bufio.Scanner) (obsTypes map[string][]string, h []byte, lines int, err error) {
+	var (
+		obsTypesStrings   []string
+		obsTypesStringsV2 []string
+		rinexVer          byte
+	)
 
 	for s.Scan() {
+		lines++
+
 		buf := s.Text()
 		h = append(h, []byte(buf)...)
 		h = append(h, byte('\n'))
