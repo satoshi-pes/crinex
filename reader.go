@@ -498,22 +498,20 @@ func epochRecBytestoTime(b []byte, ver string) (t time.Time, err error) {
 // b is a slice of byte contains epoch record (41 bytes) and satellite IDs (3bytes * n)
 func getSatList(b []byte) []string {
 	satList := []string{}
-	for i := 41; i+3 <= len(b); i += 3 {
-		satId := string(b[i : i+3])
-		if satId != "   " {
-			satList = append(satList, satId)
-		}
+	s := bytes.TrimRight(b, " ")
+	for i := 41; i+3 <= len(s); i += 3 {
+		satId := string(s[i : i+3])
+		satList = append(satList, satId)
 	}
 	return satList
 }
 
 func getSatListV1(b []byte) []string {
 	satList := []string{}
-	for i := 32; i+3 <= len(b); i += 3 {
-		satId := string(b[i : i+3])
-		if satId != "   " {
-			satList = append(satList, satId)
-		}
+	s := bytes.TrimRight(b, " ")
+	for i := 32; i+3 <= len(s); i += 3 {
+		satId := string(s[i : i+3])
+		satList = append(satList, satId)
 	}
 	return satList
 }

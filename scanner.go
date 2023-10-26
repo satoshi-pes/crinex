@@ -7,6 +7,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -142,6 +143,8 @@ RETRY_SCAN_EPOCH:
 	}
 
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to scan epoch. line(%d), err='%v'\n", s.lineNum, err)
+
 		// seek new epoch record identifier to recover
 
 		// Check for an initialization flag '>' exists in the middle of the line.
@@ -451,6 +454,7 @@ func (s *Scanner) scanEpoch(epochStr string) error {
 	if err := s.updateEpochRec(epochStr); err != nil {
 		return err
 	}
+	epochLineNum := s.lineNum
 
 	// Update of (2) clock offset (reference and differenced values)
 	if scanOK = s.Scan(); !scanOK {
@@ -474,10 +478,19 @@ func (s *Scanner) scanEpoch(epochStr string) error {
 	}
 
 	// read data block
-	//for _, satId := range s.satList {
-	for i, satId := range s.satList {
+	var numValidSat int
+	//for i, satId := range s.satList {
+	for _, satId := range s.satList {
 		satSys := satId[:1]
-		obsCodes := obsTypes[satSys]
+
+		// check if satId is valid
+		if slices.Contains(VALID_SATSYS, satSys) && !strings.HasSuffix(satId, " ") {
+			// valid satellite
+			numValidSat++
+		} else {
+			fmt.Fprintf(os.Stderr, "warning: ignored invalid satellite: line(%d) sat='%s'\n", epochLineNum, satId)
+			continue
+		}
 
 		// scan one line
 		if scanOK = s.Scan(); !scanOK {
@@ -487,13 +500,14 @@ func (s *Scanner) scanEpoch(epochStr string) error {
 			}
 
 			// in the case of EOF, finalize the stored data
-			if i > 0 {
-				s.changeNumSatellites(i)
+			if numValidSat > 0 {
+				s.changeNumSatellites(numValidSat)
 			}
 			return io.EOF
 		}
 		t := s.s.Text()
 
+		obsCodes := obsTypes[satSys]
 		vals := strings.SplitN(t, " ", len(obsCodes)+1)
 
 		// allocate for new sat
