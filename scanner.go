@@ -143,7 +143,7 @@ RETRY_SCAN_EPOCH:
 	}
 
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: failed to scan epoch. line(%d), err='%v'\n", s.lineNum, err)
+		fmt.Fprintf(os.Stderr, "warning: failed to scan epoch: line=%d, err='%v'\n", s.lineNum, err)
 
 		// seek new epoch record identifier to recover
 
@@ -196,13 +196,14 @@ func (s *Scanner) Epoch() time.Time {
 }
 
 func (s *Scanner) EpochAsBytes() []byte {
-	if s.ver == "3.0" {
+	switch s.ver {
+	case "3.0":
 		if s.clk.missing {
 			return []byte(fmt.Sprintf("%-35.35s\n", s.epochRec.StringRINEX()))
 		} else {
 			return []byte(fmt.Sprintf("%-35.35s      %15.12f\n", s.epochRec.StringRINEX(), s.ClockOffset()))
 		}
-	} else if s.ver == "1.0" {
+	case "1.0":
 		return []byte(s.epochRec.StringRINEXV2(s.ClockOffset()))
 	}
 
@@ -217,9 +218,10 @@ func (s *Scanner) ClockOffset() (clkoff float64) {
 		return // nan
 	}
 
-	if s.ver == "3.0" {
+	switch s.ver {
+	case "3.0":
 		return float64(s.clk.refData) * 0.000000000001
-	} else if s.ver == "1.0" {
+	case "1.0":
 		return float64(s.clk.refData) * 0.000000001
 	}
 
@@ -256,7 +258,8 @@ func (s *Scanner) Data() (obs []SatObss) {
 
 // Data returns decompressed RINEX data as RINEX bytes
 func (s *Scanner) DataAsBytes() (buf []byte) {
-	if s.ver == "3.0" {
+	switch s.ver {
+	case "3.0":
 		// data block
 		for _, satId := range s.satList {
 			var bufs []byte
@@ -279,7 +282,7 @@ func (s *Scanner) DataAsBytes() (buf []byte) {
 			buf = append(buf, bytes.TrimRight(bufs, " ")...)
 			buf = append(buf, '\n')
 		}
-	} else if s.ver == "1.0" {
+	case "1.0":
 		// data block
 		for _, satId := range s.satList {
 			var bufs []byte
@@ -313,7 +316,8 @@ func (s *Scanner) DataAsBytes() (buf []byte) {
 //     numSkip > 0: special records follow
 func checkInitialized(epochStr string) (initialized bool, numSkip int, err error) {
 
-	if strings.HasPrefix(epochStr, ">") {
+	switch {
+	case strings.HasPrefix(epochStr, ">"):
 		// found initialization flag for crinex ver 3.0
 		initialized = true
 
@@ -333,7 +337,7 @@ func checkInitialized(epochStr string) (initialized bool, numSkip int, err error
 		}
 
 		return
-	} else if strings.HasPrefix(epochStr, "&") {
+	case strings.HasPrefix(epochStr, "&"):
 		// found initialization flag for crinex ver 1.0
 		initialized = true
 
@@ -471,9 +475,10 @@ func (s *Scanner) scanEpoch(epochStr string) error {
 
 	// Update of (3) observation data
 	// Get and update the satellite list for current epoch
-	if ver == "3.0" {
+	switch ver {
+	case "3.0":
 		s.satList = getSatList(s.epochRec.Bytes())
-	} else if ver == "1.0" {
+	case "1.0":
 		s.satList = getSatListV1(s.epochRec.Bytes())
 	}
 
@@ -488,7 +493,7 @@ func (s *Scanner) scanEpoch(epochStr string) error {
 			// valid satellite
 			numValidSat++
 		} else {
-			fmt.Fprintf(os.Stderr, "warning: ignored invalid satellite: line(%d) sat='%s'\n", epochLineNum, satId)
+			fmt.Fprintf(os.Stderr, "warning: ignored invalid satellite: line=%d, sat='%s'\n", epochLineNum, satId)
 			continue
 		}
 
@@ -512,9 +517,10 @@ func (s *Scanner) scanEpoch(epochStr string) error {
 
 		// allocate for new sat
 		if _, ok := s.data[satId]; !ok {
-			if ver == "3.0" {
+			switch ver {
+			case "3.0":
 				s.data[satId] = NewSatDataRecord(obsCodes)
-			} else if ver == "1.0" {
+			case "1.0":
 				s.data[satId] = NewSatDataRecordV1(obsCodes)
 			}
 		}
@@ -578,12 +584,13 @@ func (s *Scanner) changeNumSatellites(i int) {
 
 	num := []byte(fmt.Sprintf("%3d", i))
 
-	if s.ver == "3.0" {
+	switch s.ver {
+	case "3.0":
 		if len(s.epochRec.buf) < 35 {
 			return
 		}
 		s.epochRec.buf[32], s.epochRec.buf[33], s.epochRec.buf[34] = num[0], num[1], num[2]
-	} else if s.ver == "1.0" {
+	case "1.0":
 		if len(s.epochRec.buf) < 32 {
 			return
 		}
