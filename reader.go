@@ -6,12 +6,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"math"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 )
+
+// crinex logger
+var logger = log.New(os.Stderr, "", log.LstdFlags|log.Lshortfile)
 
 var (
 	ErrBadMagic            = errors.New("crxReader: Bad magic value ")
@@ -520,7 +524,7 @@ func getSatListV1(b []byte) []string {
 // fmt.Sprintf("%14.3f", float64(n)*0.001)...
 func intToRinexDataBytes(n int64) []byte {
 	if n > 9999999999999 || n < -999999999999 {
-		fmt.Fprintf(os.Stderr, "intToRinexDataBytes: value overflow: v='%d'\n", n)
+		logger.Printf("intToRinexDataBytes: value overflow: v='%d'\n", n)
 
 		if n > 0 {
 			return []byte("9999999999.999")

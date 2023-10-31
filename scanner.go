@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -122,7 +121,7 @@ func (s *Scanner) ScanEpoch() bool {
 		s.obsTypes, s.header, lines, err = scanHeader(s.s)
 		s.lineNum += lines
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "error: failed to parse header. %s\n", err.Error())
+			logger.Printf("error: failed to parse header. %s\n", err.Error())
 			return false
 		}
 	}
@@ -143,7 +142,7 @@ RETRY_SCAN_EPOCH:
 	}
 
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: failed to scan epoch: line=%d, err='%v'\n", s.lineNum, err)
+		logger.Printf("warning: failed to scan epoch: line=%d, err='%v'\n", s.lineNum, err)
 
 		// seek new epoch record identifier to recover
 
@@ -152,7 +151,7 @@ RETRY_SCAN_EPOCH:
 		// indistinguishable from the the differentiation flag.
 		if i := strings.Index(epochStr, ">"); i > 0 {
 			// found an initialization flag
-			fmt.Fprintf(os.Stderr, "epochrec modified: '%s'\n", epochStr)
+			logger.Printf("epochrec modified: '%s'\n", epochStr)
 
 			epochStr = epochStr[i:]
 			goto RETRY_SCAN_EPOCH
@@ -200,9 +199,8 @@ func (s *Scanner) EpochAsBytes() []byte {
 	case "3.0":
 		if s.clk.missing {
 			return []byte(fmt.Sprintf("%-35.35s\n", s.epochRec.StringRINEX()))
-		} else {
-			return []byte(fmt.Sprintf("%-35.35s      %15.12f\n", s.epochRec.StringRINEX(), s.ClockOffset()))
 		}
+		return []byte(fmt.Sprintf("%-35.35s      %15.12f\n", s.epochRec.StringRINEX(), s.ClockOffset()))
 	case "1.0":
 		return []byte(s.epochRec.StringRINEXV2(s.ClockOffset()))
 	}
@@ -380,7 +378,9 @@ func (s *Scanner) updateEpochRec(epochStr string) error {
 		if err != nil {
 			// invalid epoch record found, and try to recover to the correct epoch head
 			return fmt.Errorf("%w: %s", ErrInvalidEpochStr, err.Error())
-		} else if numSkip > 0 {
+		}
+
+		if numSkip > 0 {
 			// special event found, skip numSkip lines
 			for i := 0; i < numSkip; i++ {
 				if ok := s.Scan(); !ok {
@@ -493,7 +493,7 @@ func (s *Scanner) scanEpoch(epochStr string) error {
 			// valid satellite
 			numValidSat++
 		} else {
-			fmt.Fprintf(os.Stderr, "warning: ignored invalid satellite: line=%d, sat='%s'\n", epochLineNum, satId)
+			logger.Printf("warning: ignored invalid satellite: line=%d, sat='%s'\n", epochLineNum, satId)
 			continue
 		}
 
