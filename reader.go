@@ -444,8 +444,14 @@ func parseObsTypesV2(buf []string) (obsTypes map[string][]string, err error) {
 
 // epochRecBytestoTime converts epochRec.bytes() to time.Time
 func epochRecBytestoTime(b []byte, ver string) (t time.Time, err error) {
-	if ver == "3.0" {
+	switch ver {
+	case "3.0":
 		dtLayout := "2006  1  2 15  4  5" // YYYY mm dd HH MM SS
+
+		if len(b) < 29 {
+			// too short string
+			return t, ErrInvalidEpochStr
+		}
 
 		// date
 		t, err = time.Parse(dtLayout, string(b[2:29]))
@@ -453,11 +459,17 @@ func epochRecBytestoTime(b []byte, ver string) (t time.Time, err error) {
 			return t, ErrInvalidEpochStr
 		}
 		return t, nil
-	} else if ver == "1.0" {
+	case "1.0":
 		var (
 			yy, mm, dd, HH, MM, ss, ns int
 			errs                       [7]error
 		)
+
+		if len(b) < 25 {
+			// too short string
+			return t, ErrInvalidEpochStr
+		}
+
 		yy, errs[0] = strconv.Atoi(string(bytes.TrimSpace(b[1:3])))
 		mm, errs[1] = strconv.Atoi(string(bytes.TrimSpace(b[4:6])))
 		dd, errs[2] = strconv.Atoi(string(bytes.TrimSpace(b[7:9])))

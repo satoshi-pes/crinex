@@ -349,6 +349,11 @@ func checkInitialized(epochStr string) (initialized bool, numSkip int, err error
 		if epochStr[28] > '1' {
 			numSkip, err = strconv.Atoi(strings.TrimSpace(string(epochStr[29:32])))
 			if err != nil {
+				if len(epochStr) < 35 {
+					err = fmt.Errorf("%w: failed to parse numSkip: numSkip not found: %s", ErrInvalidEpochStr, err.Error())
+					return
+				}
+
 				err = fmt.Errorf("%w: failed to parse numSkip '%s': %s", ErrInvalidEpochStr, epochStr[32:35], err.Error())
 				return
 			}
