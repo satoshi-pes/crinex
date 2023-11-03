@@ -18,12 +18,13 @@ import (
 var logger = log.New(os.Stderr, "", log.LstdFlags|log.Lshortfile)
 
 var (
-	ErrBadMagic            = errors.New("crxReader: Bad magic value ")
-	ErrNotSupportedVersion = errors.New("crxReader: Not supported version ")
-	ErrInvalidEpochStr     = errors.New("crxReader: Invalid EpochStr found ")
-	ErrInvalidData         = errors.New("crxReader: Invalid record found ")
-	ErrInvalidMaxDiff      = errors.New("crxReader: Invalid maxdiff found ")
-	ErrRecovered           = errors.New("crxReader: Invalid record found and recovered ")
+	ErrBadMagic            = errors.New("crinex: Bad magic value")
+	ErrNotSupportedVersion = errors.New("crinex: Not supported version")
+	ErrInvalidHeader       = errors.New("crinex: Invalid Header")
+	ErrInvalidEpochStr     = errors.New("crinex: Invalid EpochStr found")
+	ErrInvalidData         = errors.New("crinex: Invalid record found")
+	ErrInvalidMaxDiff      = errors.New("crinex: Invalid maxdiff found")
+	ErrRecovered           = errors.New("crinex: Invalid record found and recovered")
 )
 
 func NewReader(r io.Reader) (io.Reader, error) {
@@ -289,17 +290,28 @@ func scanHeader(s *bufio.Scanner) (obsTypes map[string][]string, h []byte, lines
 		obsTypesStrings   []string
 		obsTypesStringsV2 []string
 		rinexVer          byte
+
+		// flags for validation of Header
+		RinexVerIsOk    bool
+		endOfHeaderIsOk bool
 	)
 
 	for s.Scan() {
 		lines++
 
 		buf := s.Text()
+		if len(buf) < 61 {
+			// no header label found, and read as a comment
+			logger.Printf("warning: no header label found: s='%s'\n", buf)
+			buf = fmt.Sprintf("%-60sCOMMENT", buf)
+		}
+
 		h = append(h, []byte(buf)...)
 		h = append(h, byte('\n'))
 
 		if strings.HasPrefix(buf[60:], "RINEX VERSION / TYPE") {
 			rinexVer = strings.TrimSpace(buf[:20])[0] // '2', '3', or '4'
+			RinexVerIsOk = true
 		}
 		if strings.HasPrefix(buf[60:], "SYS / # / OBS TYPES") {
 			obsTypesStrings = append(obsTypesStrings, buf)
@@ -308,15 +320,34 @@ func scanHeader(s *bufio.Scanner) (obsTypes map[string][]string, h []byte, lines
 			obsTypesStringsV2 = append(obsTypesStringsV2, buf)
 		}
 		if strings.HasPrefix(buf[60:], "END OF HEADER") {
+			endOfHeaderIsOk = true
 			break
 		}
 	}
 
+	// check if header is ok
+	switch {
+	case !RinexVerIsOk:
+		err = fmt.Errorf("%w: RINEX version not found", ErrInvalidHeader)
+		return
+	case !endOfHeaderIsOk:
+		err = fmt.Errorf("%w: END OF HEADER not found", ErrInvalidHeader)
+		return
+	}
+
 	// currently errors are ignored
 	if rinexVer >= '3' {
-		obsTypes, _ = parseObsTypes(obsTypesStrings)
+		obsTypes, err = parseObsTypes(obsTypesStrings)
+		if err != nil {
+			err = fmt.Errorf("%w: failed to parse obstypes: %w", ErrInvalidHeader, err)
+			return
+		}
 	} else if rinexVer >= '2' {
-		obsTypes, _ = parseObsTypesV2(obsTypesStringsV2)
+		obsTypes, err = parseObsTypesV2(obsTypesStringsV2)
+		if err != nil {
+			err = fmt.Errorf("%w: failed to parse obstypes: %w", ErrInvalidHeader, err)
+			return
+		}
 	} else {
 		// not supported
 		err = ErrNotSupportedVersion
@@ -341,7 +372,7 @@ func parseObsTypes(buf []string) (obsTypes map[string][]string, err error) {
 		s = buf[k]
 
 		if len(s) < 6 {
-			err = fmt.Errorf("too short msg, s='%s'", s)
+			err = fmt.Errorf("too short obstypes, s='%s'", s)
 			return
 		}
 
@@ -357,7 +388,7 @@ func parseObsTypes(buf []string) (obsTypes map[string][]string, err error) {
 		idx := 7 // index of the string
 		for i := 0; i < numCodes; i++ {
 			if len(s) < idx+3 {
-				err = fmt.Errorf("too short msg, s='%s'", s)
+				err = fmt.Errorf("too short obstypes, s='%s'", s)
 				return
 			}
 			obsTypes[satSys] = append(obsTypes[satSys], s[idx:idx+3])
