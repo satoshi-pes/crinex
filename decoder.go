@@ -108,16 +108,6 @@ type satDataRecord struct {
 
 // NewSatDataRecord returns a new satDataRecord initialized with obsCodes.
 func NewSatDataRecord(obsCodes []string) satDataRecord {
-	return satDataRecord{
-		obsCodes: obsCodes,
-		data:     make([]diffRecord, len(obsCodes)),
-		lli:      make([]strRecord, len(obsCodes)),
-		ss:       make([]strRecord, len(obsCodes)),
-	}
-}
-
-// NewSatDataRecord returns a new satDataRecord initialized with obsCodes.
-func NewSatDataRecordV1(obsCodes []string) satDataRecord {
 	r := satDataRecord{
 		obsCodes: obsCodes,
 		data:     make([]diffRecord, len(obsCodes)),
@@ -125,9 +115,7 @@ func NewSatDataRecordV1(obsCodes []string) satDataRecord {
 		ss:       make([]strRecord, len(obsCodes)),
 	}
 
-	// for crinex version 1
-	// Initialize LLI and SS because no initialization identifier is defined
-	// in the crinex version 1.
+	// Initialize LLI and SS
 	for i := 0; i < len(obsCodes); i++ {
 		r.lli[i].buf = []byte{' '}
 		r.ss[i].buf = []byte{' '}

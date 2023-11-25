@@ -131,11 +131,7 @@ func NewReader(r io.Reader) (io.Reader, error) {
 
 			// allocate for new sat
 			if _, ok := data[satId]; !ok {
-				if ver == "3.0" {
-					data[satId] = NewSatDataRecord(obsCodes)
-				} else if ver == "1.0" {
-					data[satId] = NewSatDataRecordV1(obsCodes)
-				}
+				data[satId] = NewSatDataRecord(obsCodes)
 			}
 
 			// Update code and phase data

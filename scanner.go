@@ -522,12 +522,7 @@ func (s *Scanner) scanEpoch(epochStr string) error {
 
 		// allocate for new sat
 		if _, ok := s.data[satId]; !ok {
-			switch ver {
-			case "3.0":
-				s.data[satId] = NewSatDataRecord(obsCodes)
-			case "1.0":
-				s.data[satId] = NewSatDataRecordV1(obsCodes)
-			}
+			s.data[satId] = NewSatDataRecord(obsCodes)
 		}
 
 		// Update code and phase data
