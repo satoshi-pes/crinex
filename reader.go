@@ -379,6 +379,7 @@ func parseObsTypes(buf []string) (obsTypes map[string][]string, err error) {
 			err = fmt.Errorf("cannot parse numCodes, err=%w", err)
 			return
 		}
+		obsTypes[satSys] = make([]string, numCodes)
 
 		n := 0   // number of codes in the current line
 		idx := 7 // index of the string
@@ -387,13 +388,17 @@ func parseObsTypes(buf []string) (obsTypes map[string][]string, err error) {
 				err = fmt.Errorf("too short obstypes, s='%s'", s)
 				return
 			}
-			obsTypes[satSys] = append(obsTypes[satSys], s[idx:idx+3])
+			obsTypes[satSys][i] = s[idx : idx+3]
 
 			n++
 			idx += 4
 			if n == 13 && i+1 < numCodes {
 				// move to the new line
 				k++
+				if k >= len(buf) {
+					err = fmt.Errorf("obstypes header is missing")
+					return
+				}
 				s = buf[k]
 				n, idx = 0, 7
 			}
@@ -443,6 +448,10 @@ func parseObsTypesV2(buf []string) (obsTypes map[string][]string, err error) {
 			if n == 9 && i+1 < numCodes {
 				// move to the new line
 				k++
+				if k >= len(buf) {
+					err = fmt.Errorf("obstypes header is missing")
+					return
+				}
 				s = buf[k]
 				n, idx = 0, 10
 
