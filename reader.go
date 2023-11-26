@@ -332,17 +332,22 @@ func scanHeader(s *bufio.Scanner) (obsTypes map[string][]string, h []byte, lines
 	}
 
 	// currently errors are ignored
+	var e error
 	if rinexVer >= '3' {
-		obsTypes, err = parseObsTypes(obsTypesStrings)
-		if err != nil {
-			err = fmt.Errorf("%w: failed to parse obstypes: %w", ErrInvalidHeader, err)
-			return
+		obsTypes, e = parseObsTypes(obsTypesStrings)
+		if e != nil {
+			// obstypes header is not correct, but only show a warning
+			// because the number of observation types could be inferred from
+			// the first initialization line.
+			logger.Printf("warning: failed to parse obstypes: %v", e)
 		}
 	} else if rinexVer >= '2' {
-		obsTypes, err = parseObsTypesV2(obsTypesStringsV2)
-		if err != nil {
-			err = fmt.Errorf("%w: failed to parse obstypes: %w", ErrInvalidHeader, err)
-			return
+		obsTypes, e = parseObsTypesV2(obsTypesStringsV2)
+		if e != nil {
+			// obstypes header is not correct, but only show a warning
+			// because the number of observation types could be inferred from
+			// the first initialization line.
+			logger.Printf("warning: failed to parse obstypes: %v", e)
 		}
 	} else {
 		// not supported
