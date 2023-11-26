@@ -9,6 +9,7 @@ import (
 	"log"
 	"math"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -429,7 +430,11 @@ func parseObsTypesV2(buf []string) (obsTypes map[string][]string, err error) {
 	sep = sep[1:] // remove the first element that indicates the numCodes
 
 	// parse number of obsCodes
-	numCodes, err = strconv.Atoi(strings.TrimSpace(s[:6]))
+
+	// This is a workaround to parse invalid number of obstypes, e.g., tow21810.99d:
+	// "    x5    C1    L1    L2    P2    P1                        # / TYPES OF OBSERV"
+	strNumObs := replaceNonNumericToSpace(s[:6])
+	numCodes, err = strconv.Atoi(strings.TrimSpace(strNumObs))
 	if err != nil {
 		err = fmt.Errorf("failed to parse numCodes, s='%s', err=%v", s[:6], err)
 		return
@@ -615,4 +620,16 @@ func intToRinexDataBytes(n int64) []byte {
 			return buf[:14]
 		}
 	}
+}
+
+// replaceNonNumericToSpace replaces non numeric characters to spaces.
+func replaceNonNumericToSpace(s string) string {
+	numeric := []rune{'0', '1', '2', '3', '4', '5', '6', '7', '8', '9'}
+	ss := []rune(s)
+	for i := range ss {
+		if !slices.Contains(numeric, ss[i]) {
+			ss[i] = ' '
+		}
+	}
+	return string(ss)
 }
