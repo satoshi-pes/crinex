@@ -455,6 +455,9 @@ func parseObsTypesV2(buf []string) (obsTypes map[string][]string, err error) {
 				k++
 				if k >= len(buf) {
 					err = fmt.Errorf("obstypes header is missing")
+					for _, satSys := range VALID_SATSYS {
+						obsTypes[satSys] = obsCodes
+					}
 					return
 				}
 				s = buf[k]
