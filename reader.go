@@ -426,7 +426,7 @@ func parseObsTypesV2(buf []string) (obsTypes map[string][]string, err error) {
 	}
 
 	s = buf[0]
-	sep := strings.Fields(s)
+	sep := strings.Fields(s[:60])
 	sep = sep[1:] // remove the first element that indicates the numCodes
 
 	// parse number of obsCodes
@@ -441,11 +441,26 @@ func parseObsTypesV2(buf []string) (obsTypes map[string][]string, err error) {
 	}
 	obsCodes := make([]string, numCodes)
 
+	// store same obsCodes for all satellite system before return.
+	// note that " " denotes "G".
+	defer func() {
+		for _, satSys := range VALID_SATSYS {
+			obsTypes[satSys] = obsCodes
+		}
+	}()
+
 	for k := 0; k < len(buf); k++ {
 		n := 0    // number of codes in the current line
 		idx := 10 // index of the string
 
 		for i := 0; i < numCodes; i++ {
+			// check number of obscodes exist
+			if len(sep) <= n {
+				err = fmt.Errorf("not enough obsCodes, numCodes='%d', s='%v'", numCodes, sep)
+				return
+			}
+
+			// check code length
 			if len(sep[n]) >= 2 {
 				obsCodes[i] = sep[n][:2]
 			} else {
@@ -460,9 +475,6 @@ func parseObsTypesV2(buf []string) (obsTypes map[string][]string, err error) {
 				k++
 				if k >= len(buf) {
 					err = fmt.Errorf("obstypes header is missing")
-					for _, satSys := range VALID_SATSYS {
-						obsTypes[satSys] = obsCodes
-					}
 					return
 				}
 				s = buf[k]
@@ -476,12 +488,6 @@ func parseObsTypesV2(buf []string) (obsTypes map[string][]string, err error) {
 				}
 			}
 		}
-	}
-
-	// store same obsCodes for all satellite system.
-	// note that " " denotes "G".
-	for _, satSys := range VALID_SATSYS {
-		obsTypes[satSys] = obsCodes
 	}
 
 	return
