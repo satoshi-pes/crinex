@@ -518,19 +518,25 @@ func (s *Scanner) scanEpoch(epochStr string) error {
 		t := s.s.Text()
 
 		if _, ok := obsTypes[satSys]; !ok {
-			// A mismatch between obstypes in header and data found.
-			// This may not be a reliable method, but infers the number of observation
-			// types from the number of fields in the line. Dummy obsCodes is
-			// also stored in s.obsTypes here.
-			//
-			// Note that this method can only be used for the initialization line,
-			// which is usually the case for the first satellite data found in
-			// the file.
-			logger.Printf("warning: satsys not included in obstypes found: line=%d, sat='%s'\n", s.lineNum, satSys)
+			switch ver {
+			case "3.0":
+				// A mismatch between obstypes in header and data found.
+				// This may not be a reliable method, but infers the number of observation
+				// types from the number of fields in the line. Dummy obsCodes is
+				// also stored in s.obsTypes here.
+				//
+				// Note that this method can only be used for the initialization line for crinex >= 3.0,
+				// which is usually the case for the first satellite data found in
+				// the file.
+				logger.Printf("warning: satsys not included in obstypes found: line=%d, sat='%s'\n", s.lineNum, satSys)
 
-			n := strings.Count(strings.TrimRight(t, " "), " ") // number of data = number of spaces in the initialization line
-			s.obsTypes[satSys] = make([]string, n)
-			obsTypes = s.obsTypes
+				n := strings.Count(strings.TrimRight(t, " "), " ") // number of data = number of spaces in the initialization line
+				s.obsTypes[satSys] = make([]string, n)
+				obsTypes = s.obsTypes
+			default:
+				// There is no way to recover.
+				return fmt.Errorf("unknown satellite found: line='%d', sat='%s'", s.lineNum, satSys)
+			}
 		}
 		obsCodes := obsTypes[satSys]
 		vals := strings.SplitN(t, " ", len(obsCodes)+1)
