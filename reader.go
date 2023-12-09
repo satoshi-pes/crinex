@@ -114,12 +114,7 @@ func NewReader(r io.Reader) (io.Reader, error) {
 		clk.Decode([]byte(clockStr))
 
 		// get list of satellites
-		var satList []string
-		if ver == "3.0" {
-			satList = getSatList(epochRec.Bytes())
-		} else if ver == "1.0" {
-			satList = getSatListV1(epochRec.Bytes())
-		}
+		satList := getSatListWithCorrection(epochRec.Bytes(), ver)
 
 		// read data block
 		for _, satId := range satList {
@@ -570,7 +565,7 @@ func epochRecBytestoTime(b []byte, ver string) (t time.Time, err error) {
 func getSatList(b []byte) []string {
 	satList := []string{}
 	s := bytes.TrimRight(b, " ")
-	for i := 41; i+3 <= len(s); i += 3 {
+	for i := OFFSET_SATLST_V3; i+3 <= len(s); i += 3 {
 		satId := string(s[i : i+3])
 		satList = append(satList, satId)
 	}
@@ -580,11 +575,89 @@ func getSatList(b []byte) []string {
 func getSatListV1(b []byte) []string {
 	satList := []string{}
 	s := bytes.TrimRight(b, " ")
-	for i := 32; i+3 <= len(s); i += 3 {
+	for i := OFFSET_SATLST_V1; i+3 <= len(s); i += 3 {
 		satId := string(s[i : i+3])
 		satList = append(satList, satId)
 	}
 	return satList
+}
+
+// getSatListWithCorrection returns a slice of satellite IDs.
+// b is a slice of byte contains epoch record and ver is the crinex version (1.0 or 3.0).
+// If invalid satellite id is found, this func attempts to repair it.
+func getSatListWithCorrection(b []byte, ver string) []string {
+	var (
+		offsetNumSat  int
+		offsetSatList int
+		satList       []string
+	)
+
+	switch ver {
+	case "3.0":
+		offsetNumSat, offsetSatList = OFFSET_NUMSAT_V3, OFFSET_SATLST_V3
+	case "1.0":
+		offsetNumSat, offsetSatList = OFFSET_NUMSAT_V1, OFFSET_SATLST_V1
+	default:
+		return satList
+	}
+
+	// no satellite list found
+	if len(b) < offsetSatList {
+		return satList
+	}
+
+	switch ver {
+	case "3.0":
+		satList = getSatList(b)
+	case "1.0":
+		satList = getSatListV1(b)
+	}
+
+	// get number of satellites
+	n, err := strconv.Atoi(string(bytes.TrimSpace(b[offsetNumSat : offsetNumSat+3])))
+	if err != nil {
+		logger.Printf("warning: failed to parse number of satellite but continue to read satellite list. satnum='%s', b='%s'", b[offsetNumSat:offsetNumSat+3], b)
+		return satList
+	}
+
+	// check for consistency between numsat and len of satList
+	lens := len(satList)
+	if lens != n {
+		logger.Printf("warning: mismatch between number of satellites: ns='%d', satList='%+v'\n", n, satList)
+
+		// the last index where the satellites list were correctly parsed
+		i := offsetSatList + lens*3
+
+		// try to repair the invalid satID
+		if len(b) > i+2 {
+			bb := b[i : i+2]
+			if satId, ok := repairInvalidSatID(bb); ok {
+				satList = append(satList, satId)
+				logger.Printf("warning: modified invalid satellite '%s '->'%s'", string(bb), satId)
+			}
+		}
+	}
+
+	return satList
+}
+
+// repairInvalidSatID returns correct satID and ok on success.
+func repairInvalidSatID(b []byte) (s string, ok bool) {
+	if len(b) < 2 {
+		return "", false
+	}
+
+	// Workarounds for invalid satellite IDs
+	switch {
+	// case1 satellite ID "X9 " to "X 9", e.g. line 1653 of alic2520.98d
+	case len(bytes.TrimRight(b, " ")) == 2 && slices.Contains(VALID_SATSYS, string(b[0])) && isNumeric(b[1]):
+		// case1 invalid satellite ID found at line 1653 of alic2520.98d:
+		// "                3              2 &4 9&  & &&  & &&  &  &"
+		// This case the second satellite is " 9 " but correctly it is "  9".
+		return string([]byte{b[0], ' ', b[1]}), true
+	}
+
+	return
 }
 
 // intToRinexDataBytes returns []byte that is equivalent to the output of
@@ -638,4 +711,10 @@ func replaceNonNumericToSpace(s string) string {
 		}
 	}
 	return string(ss)
+}
+
+// isNumeric reports whether the byte is a numeric character.
+func isNumeric(s byte) bool {
+	numeric := []rune{'0', '1', '2', '3', '4', '5', '6', '7', '8', '9'}
+	return slices.Contains(numeric, rune(s))
 }

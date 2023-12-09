@@ -480,12 +480,7 @@ func (s *Scanner) scanEpoch(epochStr string) error {
 
 	// Update of (3) observation data
 	// Get and update the satellite list for current epoch
-	switch ver {
-	case "3.0":
-		s.satList = getSatList(s.epochRec.Bytes())
-	case "1.0":
-		s.satList = getSatListV1(s.epochRec.Bytes())
-	}
+	s.satList = getSatListWithCorrection(s.epochRec.Bytes(), ver)
 
 	// read data block
 	var numValidSat int
