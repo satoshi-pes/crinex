@@ -703,10 +703,9 @@ func intToRinexDataBytes(n int64) []byte {
 
 // replaceNonNumericToSpace replaces non numeric characters to spaces.
 func replaceNonNumericToSpace(s string) string {
-	numeric := []rune{'0', '1', '2', '3', '4', '5', '6', '7', '8', '9'}
-	ss := []rune(s)
+	ss := []byte(s)
 	for i := range ss {
-		if !slices.Contains(numeric, ss[i]) {
+		if !isNumeric(ss[i]) {
 			ss[i] = ' '
 		}
 	}
