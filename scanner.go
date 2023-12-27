@@ -480,7 +480,7 @@ func (s *Scanner) scanEpoch(epochStr string) error {
 
 	// Update of (3) observation data
 	// Get and update the satellite list for current epoch
-	s.satList = getSatListWithCorrection(s.epochRec.Bytes(), ver)
+	s.satList = getSatListWithCorrection(s.epochRec.Bytes(), ver, epochLineNum)
 
 	// read data block
 	var numValidSat int

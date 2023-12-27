@@ -114,7 +114,7 @@ func NewReader(r io.Reader) (io.Reader, error) {
 		clk.Decode([]byte(clockStr))
 
 		// get list of satellites
-		satList := getSatListWithCorrection(epochRec.Bytes(), ver)
+		satList := getSatListWithCorrection(epochRec.Bytes(), ver, -1)
 
 		// read data block
 		for _, satId := range satList {
@@ -585,7 +585,7 @@ func getSatListV1(b []byte) []string {
 // getSatListWithCorrection returns a slice of satellite IDs.
 // b is a slice of byte contains epoch record and ver is the crinex version (1.0 or 3.0).
 // If invalid satellite id is found, this func attempts to repair it.
-func getSatListWithCorrection(b []byte, ver string) []string {
+func getSatListWithCorrection(b []byte, ver string, lineNum int) []string {
 	var (
 		offsetNumSat  int
 		offsetSatList int
@@ -606,6 +606,65 @@ func getSatListWithCorrection(b []byte, ver string) []string {
 		return satList
 	}
 
+	// get number of satellites
+	n, err := strconv.Atoi(string(bytes.TrimSpace(b[offsetNumSat : offsetNumSat+3])))
+	if err != nil {
+		logger.Printf("warning: failed to parse number of satellite but continue to read satellite list. line=%d, satnum='%s', b='%s'", lineNum, b[offsetNumSat:offsetNumSat+3], b)
+		return satList
+	}
+
+	// repair invalid epoch record
+	if len(bytes.TrimRight(b, " ")) != offsetSatList+3*n {
+		logger.Printf("warning: length of epoch record is wrong. line=%d, b='%s'", lineNum, b)
+
+		switch {
+		case len(bytes.TrimRight(b, " ")) < offsetSatList+3*n:
+			// case1:
+			// There is a wrong epoch record at line 281 in jab11630.99d:
+			// `              4 &                            4&19&2 &15&`,
+			// this line represents
+			// ` 99  6 12  0 14  0.0000000  0  8 18 14 27 16 4 19 22 15`.
+			//
+			// However, satID ' 4' should be '  4' correctly.
+			// So here the satellite list is corrected by separating b with a space.
+			// The same issue found in jab11630.99d, jab11640.99d, jab11660.99d,
+			// jab11670.99d, maw10360.99d and maw10860.99d.
+
+			if bb := bytes.Fields(bytes.Trim(b[offsetSatList:], " ")); len(bb) == n {
+				logger.Printf("warning: modify to be the correct 3 bytes sat IDs.")
+
+				// rearrange epoch record to be the correct 3 bytes satellite IDs.
+				ss := string(b[:offsetSatList])
+				for _, b1 := range bb {
+					ss += fmt.Sprintf("%3.3s", b1)
+				}
+				b = []byte(ss)
+			}
+
+		case len(bytes.TrimRight(b, " ")) == offsetSatList+3*n+1 && b[offsetSatList] == ' ':
+			// case2:
+			// There is a wrong epoch record at line 433 in jab12250.99d:
+			// `                3                &07&27&18&04&10&02&19&13`,
+			// this line represents
+			// ` 99  8 13  0 20 30.0000000  0  8  07 27 18 04 10 02 19 13`.
+			//
+			// However, there is an extra space before the satellite list.
+			// Correctly, this line would look like:
+			// `                3                07&27&18&04&10&02&19&13` and
+			// ` 99  8 13  0 20 30.0000000  0  8 07 27 18 04 10 02 19 13`.
+			//
+			// So here the extra space is checked and it will be removed.
+			// The same issue found in jab12280.99d, jab12420.99d, jab12370.99d,
+			// jab12830.99d, jab12250.99d, and jab12390.99d.
+			logger.Printf("warning: delete an extra space found at the beggining of the satellite list.")
+
+			// delete the extra space, not modifying the original slice.
+			r := make([]byte, len(b))
+			copy(r, b)
+			b = slices.Delete(r, offsetSatList, offsetSatList+1)
+		}
+	}
+
 	switch ver {
 	case "3.0":
 		satList = getSatList(b)
@@ -613,17 +672,10 @@ func getSatListWithCorrection(b []byte, ver string) []string {
 		satList = getSatListV1(b)
 	}
 
-	// get number of satellites
-	n, err := strconv.Atoi(string(bytes.TrimSpace(b[offsetNumSat : offsetNumSat+3])))
-	if err != nil {
-		logger.Printf("warning: failed to parse number of satellite but continue to read satellite list. satnum='%s', b='%s'", b[offsetNumSat:offsetNumSat+3], b)
-		return satList
-	}
-
 	// check for consistency between numsat and len of satList
 	lens := len(satList)
 	if lens != n {
-		logger.Printf("warning: mismatch between number of satellites: ns='%d', satList='%+v'\n", n, satList)
+		logger.Printf("warning: mismatch between number of satellites: line=%d, ns='%d', satList='%+v'\n", lineNum, n, satList)
 
 		// the last index where the satellites list were correctly parsed
 		i := offsetSatList + lens*3
