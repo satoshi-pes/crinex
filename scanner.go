@@ -38,8 +38,9 @@ type Scanner struct {
 	// line number
 	lineNum int
 
-	// error
-	err error
+	// error and warnings
+	err      error
+	Warnings WarningList
 }
 
 type SatObss struct {
@@ -101,10 +102,14 @@ func (s *Scanner) Scan() bool {
 // s.header and s.obsTypes, and advance reader position to the head of
 // the first data block.
 func (s *Scanner) ParseHeader() (err error) {
-	var lines int
+	var (
+		lines int
+		warns WarningList
+	)
 
-	s.obsTypes, s.header, lines, err = scanHeader(s.s)
+	s.obsTypes, s.header, lines, warns, err = scanHeader(s.s)
 	s.lineNum += lines
+	s.Warnings = append(s.Warnings, warns...)
 
 	return err
 }
@@ -114,14 +119,10 @@ func (s *Scanner) ParseHeader() (err error) {
 // In the case the scan failed, the error is stored in s.err.
 // Returns true for io.EOF.
 func (s *Scanner) ScanEpoch() bool {
-	var lines int
-
+	// The header must be scanned header before the data block is scanned
 	if s.header == nil {
-		var err error
-		s.obsTypes, s.header, lines, err = scanHeader(s.s)
-		s.lineNum += lines
-		if err != nil {
-			logger.Printf("error: failed to parse header. %s\n", err.Error())
+		if err := s.ParseHeader(); err != nil {
+			s.err = fmt.Errorf("failed to parse header: %w", err)
 			return false
 		}
 	}
@@ -142,7 +143,7 @@ RETRY_SCAN_EPOCH:
 	}
 
 	if err != nil {
-		logger.Printf("warning: failed to scan epoch: line=%d, err='%v'\n", s.lineNum, err)
+		s.Warnings.Add(s.lineNum, fmt.Sprintf("failed to scan epoch: %v", err))
 
 		// seek new epoch record identifier to recover
 
@@ -151,7 +152,7 @@ RETRY_SCAN_EPOCH:
 		// indistinguishable from the the differentiation flag.
 		if i := strings.Index(epochStr, ">"); i > 0 {
 			// found an initialization flag
-			logger.Printf("epochrec modified: '%s'\n", epochStr)
+			s.Warnings.Add(s.lineNum, fmt.Sprintf("epochrec modified: '%s'", epochStr))
 
 			epochStr = epochStr[i:]
 			goto RETRY_SCAN_EPOCH
@@ -480,7 +481,15 @@ func (s *Scanner) scanEpoch(epochStr string) error {
 
 	// Update of (3) observation data
 	// Get and update the satellite list for current epoch
-	s.satList = getSatListWithCorrection(s.epochRec.Bytes(), ver, epochLineNum)
+	satList, warns, err := getSatListWithCorrection(s.epochRec.Bytes(), ver, epochLineNum)
+	if err != nil {
+		return err
+	}
+
+	s.satList = satList
+	if warns.Len() > 0 {
+		s.Warnings = append(s.Warnings, warns...)
+	}
 
 	// read data block
 	var numValidSat int
@@ -493,7 +502,7 @@ func (s *Scanner) scanEpoch(epochStr string) error {
 			// valid satellite
 			numValidSat++
 		} else {
-			logger.Printf("warning: ignored invalid satellite: line=%d, sat='%s'\n", epochLineNum, satId)
+			s.Warnings.Add(epochLineNum, fmt.Sprintf("ignored invalid satellite: sat='%s'", satId))
 			continue
 		}
 
@@ -523,7 +532,7 @@ func (s *Scanner) scanEpoch(epochStr string) error {
 				// Note that this method can only be used for the initialization line for crinex >= 3.0,
 				// which is usually the case for the first satellite data found in
 				// the file.
-				logger.Printf("warning: satsys not included in obstypes found: line=%d, sat='%s'\n", s.lineNum, satSys)
+				s.Warnings.Add(s.lineNum, fmt.Sprintf("satsys not included in obstypes found: sat='%s'", satSys))
 
 				n := strings.Count(strings.TrimRight(t, " "), " ") // number of data = number of spaces in the initialization line
 				s.obsTypes[satSys] = make([]string, n)
@@ -617,4 +626,8 @@ func (s *Scanner) changeNumSatellites(i int) {
 			s.epochRec.buf = s.epochRec.buf[:32+3*i]
 		}
 	}
+}
+
+func (s *Scanner) Err() error {
+	return s.err
 }

@@ -25,6 +25,7 @@ var (
 	ErrInvalidEpochStr     = errors.New("crinex: Invalid EpochStr found")
 	ErrInvalidData         = errors.New("crinex: Invalid record found")
 	ErrInvalidMaxDiff      = errors.New("crinex: Invalid maxdiff found")
+	ErrInvalidSatList      = errors.New("crinex: Invalid satellite list found")
 	ErrRecovered           = errors.New("crinex: Invalid record found and recovered")
 )
 
@@ -48,9 +49,12 @@ func NewReader(r io.Reader) (io.Reader, error) {
 	_ = ver
 
 	// parse obsTypes and get all header contents
-	obsTypes, headers, _, err := scanHeader(s)
+	obsTypes, headers, _, warns, err := scanHeader(s)
 	if err != nil {
 		return bytes.NewReader(buf), err
+	}
+	for _, w := range warns {
+		logger.Printf("[warning] line=%d: %s\n", w.Pos, w.Msg)
 	}
 
 	buf = append(buf, headers...) // add header
@@ -114,7 +118,13 @@ func NewReader(r io.Reader) (io.Reader, error) {
 		clk.Decode([]byte(clockStr))
 
 		// get list of satellites
-		satList := getSatListWithCorrection(epochRec.Bytes(), ver, -1)
+		satList, warns, err := getSatListWithCorrection(epochRec.Bytes(), ver, -1)
+		if err != nil {
+			return bytes.NewReader(buf), err
+		}
+		for _, w := range warns {
+			logger.Printf("[warning] line=%d: %s\n", w.Pos, w.Msg)
+		}
 
 		// read data block
 		for _, satId := range satList {
@@ -277,7 +287,7 @@ func setup(r io.Reader) (s *bufio.Scanner, ver string, lines int, err error) {
 // scanHeader parses the header, stores header contents and obstypes to
 // s.header and s.obsTypes, and advance reader position to the head of
 // the first data block.
-func scanHeader(s *bufio.Scanner) (obsTypes map[string][]string, h []byte, lines int, err error) {
+func scanHeader(s *bufio.Scanner) (obsTypes map[string][]string, h []byte, lines int, warnings WarningList, err error) {
 	var (
 		obsTypesStrings   []string
 		obsTypesStringsV2 []string
@@ -294,7 +304,7 @@ func scanHeader(s *bufio.Scanner) (obsTypes map[string][]string, h []byte, lines
 		buf := s.Text()
 		if len(buf) < 61 {
 			// no header label found, and read as a comment
-			logger.Printf("warning: no header label found: s='%s'\n", buf)
+			warnings.Add(lines, fmt.Sprintf("no header label found: s='%s'", buf))
 			buf = fmt.Sprintf("%-60sCOMMENT", buf)
 		}
 
@@ -335,7 +345,7 @@ func scanHeader(s *bufio.Scanner) (obsTypes map[string][]string, h []byte, lines
 			// obstypes header is not correct, but only show a warning
 			// because the number of observation types could be inferred from
 			// the first initialization line.
-			logger.Printf("warning: failed to parse obstypes: %v", e)
+			warnings.Add(lines, fmt.Sprintf("failed to parse obstypes: %v", e))
 		}
 	} else if rinexVer >= '2' {
 		obsTypes, e = parseObsTypesV2(obsTypesStringsV2)
@@ -343,7 +353,7 @@ func scanHeader(s *bufio.Scanner) (obsTypes map[string][]string, h []byte, lines
 			// obstypes header is not correct, but only show a warning
 			// because the number of observation types could be inferred from
 			// the first initialization line.
-			logger.Printf("warning: failed to parse obstypes: %v", e)
+			warnings.Add(lines, fmt.Sprintf("failed to parse obstypes: %v", e))
 		}
 	} else {
 		// not supported
@@ -377,7 +387,7 @@ func parseObsTypes(buf []string) (obsTypes map[string][]string, err error) {
 		satSys = s[:1] // "G", "R", "J", "E", "C"
 		numCodes, err = strconv.Atoi(strings.TrimSpace(s[3:6]))
 		if err != nil {
-			err = fmt.Errorf("cannot parse numCodes, err=%w", err)
+			err = fmt.Errorf("failed to parse numCodes, err=%v", err)
 			return
 		}
 		obsTypes[satSys] = make([]string, numCodes)
@@ -585,11 +595,10 @@ func getSatListV1(b []byte) []string {
 // getSatListWithCorrection returns a slice of satellite IDs.
 // b is a slice of byte contains epoch record and ver is the crinex version (1.0 or 3.0).
 // If invalid satellite id is found, this func attempts to repair it.
-func getSatListWithCorrection(b []byte, ver string, lineNum int) []string {
+func getSatListWithCorrection(b []byte, ver string, lineNum int) (satList []string, warns WarningList, err error) {
 	var (
 		offsetNumSat  int
 		offsetSatList int
-		satList       []string
 	)
 
 	switch ver {
@@ -598,24 +607,25 @@ func getSatListWithCorrection(b []byte, ver string, lineNum int) []string {
 	case "1.0":
 		offsetNumSat, offsetSatList = OFFSET_NUMSAT_V1, OFFSET_SATLST_V1
 	default:
-		return satList
+		return satList, WarningList{}, ErrNotSupportedVersion
 	}
 
 	// no satellite list found
 	if len(b) < offsetSatList {
-		return satList
+		err = fmt.Errorf("%w: b='%s'", ErrInvalidSatList, b)
+		return satList, WarningList{}, err
 	}
 
 	// get number of satellites
-	n, err := strconv.Atoi(string(bytes.TrimSpace(b[offsetNumSat : offsetNumSat+3])))
-	if err != nil {
-		logger.Printf("warning: failed to parse number of satellite but continue to read satellite list. line=%d, satnum='%s', b='%s'", lineNum, b[offsetNumSat:offsetNumSat+3], b)
-		return satList
+	n, e := strconv.Atoi(string(bytes.TrimSpace(b[offsetNumSat : offsetNumSat+3])))
+	if e != nil {
+		err = fmt.Errorf("%w: err=%v", ErrInvalidSatList, e)
+		return satList, WarningList{}, err
 	}
 
 	// repair invalid epoch record
 	if len(bytes.TrimRight(b, " ")) != offsetSatList+3*n {
-		logger.Printf("warning: length of epoch record is wrong. line=%d, b='%s'", lineNum, b)
+		warns.Add(lineNum, fmt.Sprintf("length of epoch record is wrong: b='%s'", b))
 
 		switch {
 		case len(bytes.TrimRight(b, " ")) < offsetSatList+3*n:
@@ -631,7 +641,7 @@ func getSatListWithCorrection(b []byte, ver string, lineNum int) []string {
 			// jab11670.99d, maw10360.99d and maw10860.99d.
 
 			if bb := bytes.Fields(bytes.Trim(b[offsetSatList:], " ")); len(bb) == n {
-				logger.Printf("warning: modify to be the correct 3 bytes sat IDs.")
+				warns.Add(lineNum, "modify to be the correct 3 bytes sat IDs.")
 
 				// rearrange epoch record to be the correct 3 bytes satellite IDs.
 				ss := string(b[:offsetSatList])
@@ -656,7 +666,7 @@ func getSatListWithCorrection(b []byte, ver string, lineNum int) []string {
 			// So here the extra space is checked and it will be removed.
 			// The same issue found in jab12280.99d, jab12420.99d, jab12370.99d,
 			// jab12830.99d, jab12250.99d, and jab12390.99d.
-			logger.Printf("warning: delete an extra space found at the beggining of the satellite list.")
+			warns.Add(lineNum, "delete an extra space found at the begining of the satellite list.")
 
 			// delete the extra space, not modifying the original slice.
 			r := make([]byte, len(b))
@@ -675,7 +685,7 @@ func getSatListWithCorrection(b []byte, ver string, lineNum int) []string {
 	// check for consistency between numsat and len of satList
 	lens := len(satList)
 	if lens != n {
-		logger.Printf("warning: mismatch between number of satellites: line=%d, ns='%d', satList='%+v'\n", lineNum, n, satList)
+		warns.Add(lineNum, fmt.Sprintf("mismatch between number of satellites: ns='%d', satList='%+v'", n, satList))
 
 		// the last index where the satellites list were correctly parsed
 		i := offsetSatList + lens*3
@@ -685,12 +695,12 @@ func getSatListWithCorrection(b []byte, ver string, lineNum int) []string {
 			bb := b[i : i+2]
 			if satId, ok := repairInvalidSatID(bb); ok {
 				satList = append(satList, satId)
-				logger.Printf("warning: modified invalid satellite '%s '->'%s'", string(bb), satId)
+				warns.Add(lineNum, fmt.Sprintf("modified invalid satellite '%s '->'%s'", string(bb), satId))
 			}
 		}
 	}
 
-	return satList
+	return satList, warns, nil
 }
 
 // repairInvalidSatID returns correct satID and ok on success.
