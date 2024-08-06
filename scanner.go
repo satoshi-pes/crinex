@@ -414,6 +414,11 @@ func (s *Scanner) updateEpochRec(epochStr string) error {
 				return io.EOF
 			}
 			epochStr = s.s.Text()
+
+			// check initialized that is required after a special event
+			if !strings.HasPrefix(epochStr, "&") && !strings.HasPrefix(epochStr, ">") {
+				return fmt.Errorf("%w: %s", ErrInvalidEpochStr, "not initialized after a special event")
+			}
 		} else {
 			// correct epoch record and break
 			break
