@@ -313,7 +313,7 @@ func (s *Scanner) DataAsBytes() (buf []byte) {
 //   - numSkip    : number of lines to skip
 //     numSkip = 0: no special event
 //     numSkip > 0: special records follow
-func checkInitialized(epochStr string) (initialized bool, numSkip int, err error) {
+func checkInitialized(epochStr string) (initialized bool, specialEventFound bool, numSkip int, err error) {
 
 	switch {
 	case strings.HasPrefix(epochStr, ">"):
@@ -326,9 +326,12 @@ func checkInitialized(epochStr string) (initialized bool, numSkip int, err error
 			return
 		}
 
+		epochFlag := epochStr[31]
+
 		// check special event
-		if epochStr[31] > '1' {
+		if epochFlag > '1' {
 			numSkip, err = strconv.Atoi(strings.TrimSpace(string(epochStr[32:35])))
+			specialEventFound = true
 			if err != nil {
 				err = fmt.Errorf("%w: failed to parse numSkip '%s': %s", ErrInvalidEpochStr, epochStr[32:35], err.Error())
 				return
@@ -346,9 +349,12 @@ func checkInitialized(epochStr string) (initialized bool, numSkip int, err error
 			return
 		}
 
+		epochFlag := epochStr[28]
+
 		// check special event
-		if epochStr[28] > '1' {
+		if epochFlag > '1' {
 			numSkip, err = strconv.Atoi(strings.TrimSpace(string(epochStr[29:32])))
+			specialEventFound = true
 			if err != nil {
 				if len(epochStr) < 35 {
 					err = fmt.Errorf("%w: failed to parse numSkip: numSkip not found: %s", ErrInvalidEpochStr, err.Error())
@@ -364,7 +370,7 @@ func checkInitialized(epochStr string) (initialized bool, numSkip int, err error
 	}
 
 	// no initalization flag found
-	return false, 0, nil
+	return false, false, 0, nil
 }
 
 // updateEpochRec parses the epochStr and update s.epochRec.
@@ -372,21 +378,22 @@ func checkInitialized(epochStr string) (initialized bool, numSkip int, err error
 // If any error is found, the record is skipped to next epoch header that is correctly formatted.
 func (s *Scanner) updateEpochRec(epochStr string) error {
 	var (
-		initFlagFound bool
-		numSkip       int
-		err           error
+		initFlagFound     bool
+		specialEventFound bool
+		numSkip           int
+		err               error
 	)
 
 	// check epochStr, and skip invalid epochs or special event
 	for {
-		initFlagFound, numSkip, err = checkInitialized(epochStr)
+		initFlagFound, specialEventFound, numSkip, err = checkInitialized(epochStr)
 
 		if err != nil {
 			// invalid epoch record found, and try to recover to the correct epoch head
 			return fmt.Errorf("%w: %s", ErrInvalidEpochStr, err.Error())
 		}
 
-		if numSkip > 0 {
+		if specialEventFound {
 			// special event found, skip numSkip lines
 			for i := 0; i < numSkip; i++ {
 				if ok := s.Scan(); !ok {
