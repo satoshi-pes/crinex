@@ -530,6 +530,11 @@ func epochRecBytestoTime(b []byte, ver string) (t time.Time, err error) {
 			return t, ErrInvalidEpochStr
 		}
 
+		// check if spaces are correctly placed
+		if (b[0] != ' ' && b[0] != '&') || b[3] != ' ' || b[6] != ' ' || b[9] != ' ' || b[12] != ' ' || b[15] != ' ' {
+			return t, ErrInvalidEpochStr
+		}
+
 		yy, errs[0] = strconv.Atoi(string(bytes.TrimSpace(b[1:3])))
 		mm, errs[1] = strconv.Atoi(string(bytes.TrimSpace(b[4:6])))
 		dd, errs[2] = strconv.Atoi(string(bytes.TrimSpace(b[7:9])))
