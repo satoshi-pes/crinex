@@ -781,6 +781,5 @@ func replaceNonNumericToSpace(s string) string {
 
 // isNumeric reports whether the byte is a numeric character.
 func isNumeric(s byte) bool {
-	numeric := []rune{'0', '1', '2', '3', '4', '5', '6', '7', '8', '9'}
-	return slices.Contains(numeric, rune(s))
+	return '0' <= s && s <= '9'
 }
