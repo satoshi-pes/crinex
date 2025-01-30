@@ -53,11 +53,11 @@ func main() {
 ```
 
 Decoded data can be retrieved by the following functions.
-- Header() -> []bytes  // stores original header bytes
-- Epoch() -> time.Time
-- SatList() -> []string 
-- ClockOffset() -> float64
-- Data() -> []SatObss  // stores all data for the epoch
+- `Header() -> []bytes`  // stores original header bytes
+- `Epoch() -> time.Time`
+- `SatList() -> []string`
+- `ClockOffset() -> float64`
+- `Data() -> []SatObss`  // stores all data for the epoch
 
 ```Go
 // get time tag as time.Time
