@@ -182,8 +182,8 @@ func NewReader(r io.Reader) (io.Reader, error) {
 		// ----- CRX to RINEX -----
 		// buffer data in the RINEX format
 		// epoch record
-
-		if ver == "3.0" {
+		switch ver {
+		case "3.0", "3.1":
 			// epoch record
 			if clk.missing {
 				buf = append(buf, fmt.Sprintf("%-35.35s\n", epochRec.StringRINEX())...)
@@ -210,7 +210,7 @@ func NewReader(r io.Reader) (io.Reader, error) {
 				buf = append(buf, bytes.TrimRight(bufs, " ")...)
 				buf = append(buf, '\n')
 			}
-		} else if ver == "1.0" {
+		case "1.0":
 			if clk.missing {
 				buf = append(buf, epochRec.StringRINEXV2(math.NaN())...)
 			} else {
@@ -273,7 +273,7 @@ func setup(r io.Reader) (s *bufio.Scanner, ver string, lines int, err error) {
 	if magic != "COMPACT RINEX FORMAT" {
 		return s, ver, lines, ErrBadMagic
 	}
-	if ver != "3.0" && ver != "1.0" {
+	if ver != "3.1" && ver != "3.0" && ver != "1.0" {
 		return s, ver, lines, ErrNotSupportedVersion
 	}
 
@@ -505,7 +505,7 @@ func parseObsTypesV2(buf []string) (obsTypes map[string][]string, err error) {
 // epochRecBytestoTime converts epochRec.bytes() to time.Time
 func epochRecBytestoTime(b []byte, ver string) (t time.Time, err error) {
 	switch ver {
-	case "3.0":
+	case "3.0", "3.1":
 		dtLayout := "2006  1  2 15  4  5" // YYYY mm dd HH MM SS
 
 		if len(b) < 29 {
@@ -607,7 +607,7 @@ func getSatListWithCorrection(b []byte, ver string, lineNum int) (satList []stri
 	)
 
 	switch ver {
-	case "3.0":
+	case "3.0", "3.1":
 		offsetNumSat, offsetSatList = OFFSET_NUMSAT_V3, OFFSET_SATLST_V3
 	case "1.0":
 		offsetNumSat, offsetSatList = OFFSET_NUMSAT_V1, OFFSET_SATLST_V1
@@ -681,7 +681,7 @@ func getSatListWithCorrection(b []byte, ver string, lineNum int) (satList []stri
 	}
 
 	switch ver {
-	case "3.0":
+	case "3.0", "3.1":
 		satList = getSatList(b)
 	case "1.0":
 		satList = getSatListV1(b)
@@ -777,6 +777,21 @@ func replaceNonNumericToSpace(s string) string {
 		}
 	}
 	return string(ss)
+}
+
+// allBytesAreNumeric reports whether all the passed bytes are numeric characters.
+// Returns false if the length of b == 0.
+func allBytesAreNumeric(b []byte) bool {
+	if len(b) == 0 {
+		return false
+	}
+
+	for _, s := range b {
+		if !isNumeric(s) {
+			return false
+		}
+	}
+	return true
 }
 
 // isNumeric reports whether the byte is a numeric character.

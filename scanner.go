@@ -26,6 +26,7 @@ type Scanner struct {
 	epochRec strRecord                // epoch record
 	data     map[string]satDataRecord // data
 	clk      diffRecord               // clock
+	picoSec  strRecord                // pico-second part of the epoch (CRINEX>=3.1, RINEX>=4.02)
 
 	// real values for easier access
 	epoch   time.Time
@@ -202,6 +203,22 @@ func (s *Scanner) EpochAsBytes() []byte {
 			return []byte(fmt.Sprintf("%-35.35s\n", s.epochRec.StringRINEX()))
 		}
 		return []byte(fmt.Sprintf("%-35.35s      %15.12f\n", s.epochRec.StringRINEX(), s.ClockOffset()))
+
+	case "3.1":
+		// CRINEX 3.1 can include pico-second records
+		hasClock := !s.clk.missing
+		picoSecBytes, hasPicoSec := s.PicoSecondsBytes()
+
+		switch {
+		case !hasClock && !hasPicoSec:
+			return []byte(fmt.Sprintf("%-35.35s\n", s.epochRec.StringRINEX()))
+		case hasClock && !hasPicoSec:
+			return []byte(fmt.Sprintf("%-35.35s      %15.12f\n", s.epochRec.StringRINEX(), s.ClockOffset()))
+		case !hasClock && hasPicoSec:
+			return []byte(fmt.Sprintf("%-35.35s                      %5.5s\n", s.epochRec.StringRINEX(), picoSecBytes))
+		default:
+			return []byte(fmt.Sprintf("%-35.35s      %15.12f %5.5s\n", s.epochRec.StringRINEX(), s.ClockOffset(), picoSecBytes))
+		}
 	case "1.0":
 		return []byte(s.epochRec.StringRINEXV2(s.ClockOffset()))
 	}
@@ -218,7 +235,7 @@ func (s *Scanner) ClockOffset() (clkoff float64) {
 	}
 
 	switch s.ver {
-	case "3.0":
+	case "3.0", "3.1":
 		return float64(s.clk.refData) * 0.000000000001
 	case "1.0":
 		return float64(s.clk.refData) * 0.000000001
@@ -227,12 +244,69 @@ func (s *Scanner) ClockOffset() (clkoff float64) {
 	return // nan
 }
 
+// PicoSeconds returns pico-second part of the epoch as an int value.
+// Returns -1 if the pico-second is missing or unexpected error found.
+// pico-second record has been introduced from RINEX>=4.02 (CRINEX>=3.1) as an
+// optional record.
+//
+// Note that negative values and non-numeric entries in the pico-second record
+// will be considered format violations.
+func (s *Scanner) PicoSeconds() int {
+	missingVal := -1
+
+	switch {
+	case len(s.picoSec.Bytes()) == 0:
+		return missingVal
+
+	// non-numeric entries are format violation
+	case !allBytesAreNumeric(s.picoSec.Bytes()):
+		// warning
+		s.Warnings.Add(s.lineNum, fmt.Sprintf("non-numeric entries found in the pico-second record: picoSec='%s'", s.picoSec.String()))
+
+		return missingVal
+	}
+
+	picoSec, err := strconv.Atoi(s.picoSec.String())
+	if err != nil {
+		return missingVal // -1
+	}
+
+	return picoSec
+}
+
+// PicoSeconds returns pico-second part of the epoch as [5]byte and a bool
+// indicating success.
+//
+// Note:
+// pico-second record has been introduced from RINEX>=4.02 (CRINEX>=3.1) as an
+// optional record. Negative values and non-numeric entries in the pico-second
+// record will be considered format violations.
+func (s *Scanner) PicoSecondsBytes() (bytes [5]byte, ok bool) {
+	picoSecBytes := s.picoSec.Bytes()
+	if len(picoSecBytes) != 5 {
+		return bytes, false
+	}
+
+	for i, b := range picoSecBytes {
+		if !isNumeric(b) {
+			// warning
+			s.Warnings.Add(s.lineNum, fmt.Sprintf("non-numeric entries found in the pico-second record: picoSec='%s'", picoSecBytes))
+
+			return bytes, false
+		}
+		bytes[i] = b
+	}
+
+	// ok
+	return bytes, true
+}
+
 // Data returns decompressed RINEX data
 func (s *Scanner) Data() (obs []SatObss) {
 	obs = make([]SatObss, len(s.satList))
 
 	switch s.ver {
-	case "1.0", "3.0":
+	case "1.0", "3.0", "3.1":
 		// data block
 		for i, satId := range s.satList {
 			obs[i].SatId = satId
@@ -258,7 +332,7 @@ func (s *Scanner) Data() (obs []SatObss) {
 // Data returns decompressed RINEX data as RINEX bytes
 func (s *Scanner) DataAsBytes() (buf []byte) {
 	switch s.ver {
-	case "3.0":
+	case "3.0", "3.1":
 		// data block
 		for _, satId := range s.satList {
 			var bufs []byte
@@ -453,8 +527,9 @@ func (s *Scanner) updateEpochRec(epochStr string) error {
 // because the first line may be corrected if error is encountered.
 func (s *Scanner) scanEpoch(epochStr string) error {
 	var (
-		clockBytes []byte
-		scanOK     bool
+		clockBytes   []byte
+		picoSecBytes []byte
+		scanOK       bool
 	)
 
 	ver := s.ver           // version of hatanakaRINEX (not RINEX)
@@ -478,7 +553,7 @@ func (s *Scanner) scanEpoch(epochStr string) error {
 	}
 	epochLineNum := s.lineNum
 
-	// Update of (2) clock offset (reference and differenced values)
+	// Update of (2) clock offset (reference and differenced values) & pico-second part of the epoch (stored as string)
 	if scanOK = s.Scan(); !scanOK {
 		err := s.s.Err()
 		if err != nil {
@@ -486,9 +561,21 @@ func (s *Scanner) scanEpoch(epochStr string) error {
 		}
 		return io.EOF
 	}
-	clockBytes = s.s.Bytes()
-	if err := s.clk.Decode([]byte(clockBytes)); err != nil {
+
+	sep := []byte{' '}                        // separator " " (1 space)
+	vals := bytes.SplitN(s.s.Bytes(), sep, 2) // receiver clock offset & pico-second part of the epoch
+
+	clockBytes = vals[0]
+	if err := s.clk.Decode(clockBytes); err != nil {
 		return err
+	}
+
+	// if Hatanaka RINEX version >= 3.1, decode the optional pico-second record.
+	if ver >= "3.1" && len(vals) >= 2 {
+		picoSecBytes = vals[1]
+		if err := s.picoSec.Decode(string(picoSecBytes)); err != nil {
+			return err
+		}
 	}
 
 	// Update of (3) observation data
@@ -535,7 +622,7 @@ func (s *Scanner) scanEpoch(epochStr string) error {
 
 		if _, ok := obsTypes[satSys]; !ok {
 			switch ver {
-			case "3.0":
+			case "3.0", "3.1":
 				// A mismatch between obstypes in header and data found.
 				// This may not be a reliable method, but infers the number of observation
 				// types from the number of fields in the line. Dummy obsCodes is
@@ -622,7 +709,7 @@ func (s *Scanner) changeNumSatellites(i int) {
 	num := []byte(fmt.Sprintf("%3d", i))
 
 	switch s.ver {
-	case "3.0":
+	case "3.0", "3.1":
 		if len(s.epochRec.buf) < 35 {
 			return
 		}
