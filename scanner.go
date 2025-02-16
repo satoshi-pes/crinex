@@ -37,7 +37,9 @@ type Scanner struct {
 	s *bufio.Scanner
 
 	// line number
-	lineNum int
+	epochLineNum int // line number of the current epoch record
+	clockLineNum int // line number of the current clock record
+	lineNum      int // line number of the current position
 
 	// error and warnings
 	err      error
@@ -261,7 +263,7 @@ func (s *Scanner) PicoSeconds() int {
 	// non-numeric entries are format violation
 	case !allBytesAreNumeric(s.picoSec.Bytes()):
 		// warning
-		s.Warnings.Add(s.lineNum, fmt.Sprintf("non-numeric entries found in the pico-second record: picoSec='%s'", s.picoSec.String()))
+		s.Warnings.Add(s.clockLineNum, fmt.Sprintf("non-numeric entries found in the pico-second record: picoSec='%s'", s.picoSec.String()))
 
 		return missingVal
 	}
@@ -290,7 +292,7 @@ func (s *Scanner) PicoSecondsBytes() (bytes [5]byte, ok bool) {
 	for i, b := range picoSecBytes {
 		if !isNumeric(b) {
 			// warning
-			s.Warnings.Add(s.lineNum, fmt.Sprintf("non-numeric entries found in the pico-second record: picoSec='%s'", picoSecBytes))
+			s.Warnings.Add(s.clockLineNum, fmt.Sprintf("non-numeric entries found in the pico-second record: picoSec='%s'", picoSecBytes))
 
 			return bytes, false
 		}
@@ -551,7 +553,7 @@ func (s *Scanner) scanEpoch(epochStr string) error {
 	if err := s.updateEpochRec(epochStr); err != nil {
 		return err
 	}
-	epochLineNum := s.lineNum
+	s.epochLineNum = s.lineNum
 
 	// Update of (2) clock offset (reference and differenced values) & pico-second part of the epoch (stored as string)
 	if scanOK = s.Scan(); !scanOK {
@@ -561,6 +563,7 @@ func (s *Scanner) scanEpoch(epochStr string) error {
 		}
 		return io.EOF
 	}
+	s.clockLineNum = s.lineNum
 
 	sep := []byte{' '}                        // separator " " (1 space)
 	vals := bytes.SplitN(s.s.Bytes(), sep, 2) // receiver clock offset & pico-second part of the epoch
@@ -580,7 +583,7 @@ func (s *Scanner) scanEpoch(epochStr string) error {
 
 	// Update of (3) observation data
 	// Get and update the satellite list for current epoch
-	satList, warns, err := getSatListWithCorrection(s.epochRec.Bytes(), ver, epochLineNum)
+	satList, warns, err := getSatListWithCorrection(s.epochRec.Bytes(), ver, s.epochLineNum)
 	if err != nil {
 		return err
 	}
@@ -601,7 +604,7 @@ func (s *Scanner) scanEpoch(epochStr string) error {
 			// valid satellite
 			numValidSat++
 		} else {
-			s.Warnings.Add(epochLineNum, fmt.Sprintf("ignored invalid satellite: sat='%s'", satId))
+			s.Warnings.Add(s.epochLineNum, fmt.Sprintf("ignored invalid satellite: sat='%s'", satId))
 			continue
 		}
 
